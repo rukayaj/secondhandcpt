@@ -127,15 +127,27 @@ function extractCategory(message: string): string | null {
  * @returns A generated title
  */
 function generateTitle(message: string, category: string | null): string {
+  // First, clean the message by removing image references
+  const cleanedMessage = message
+    .split('\n')
+    .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+    .join(' ')
+    .trim();
+  
+  if (!cleanedMessage) {
+    // If there's no text left after cleaning, use the category
+    return category ? `${category} Item` : 'Item for Sale';
+  }
+  
   // Try to extract the first sentence or phrase that mentions the item
-  const firstSentenceMatch = message.match(/^.*?(selling|sale|sell|available|for sale)\s+(?:a|an)?\s*([^\.!?,]+)/i);
+  const firstSentenceMatch = cleanedMessage.match(/^.*?(selling|sale|sell|available|for sale)\s+(?:a|an)?\s*([^\.!?,]+)/i);
   
   if (firstSentenceMatch && firstSentenceMatch[2]) {
     return firstSentenceMatch[2].trim();
   }
   
-  // If no clear item description, use the first 50 characters
-  const shortDescription = message.split(/[.!?]/)[0].trim();
+  // If no clear item description, use the first 50 characters of the cleaned message
+  const shortDescription = cleanedMessage.split(/[.!?]/)[0].trim();
   if (shortDescription.length > 10) {
     return shortDescription.substring(0, Math.min(50, shortDescription.length)) + (shortDescription.length > 50 ? '...' : '');
   }

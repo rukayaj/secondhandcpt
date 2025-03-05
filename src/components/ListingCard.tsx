@@ -57,6 +57,14 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
     ? listing.images[0]
     : `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
 
+  // Generate a display title that doesn't include image filenames
+  const displayTitle = listing.title && !listing.title.startsWith('IMG-')
+    ? listing.title
+    : listing.text.split('\n')
+        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+        .join(' ')
+        .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
+
   return (
     <Link href={`/listings/${listing.id}`} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
       <div className="relative pt-[75%]">
@@ -72,7 +80,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           // For regular listings, display the image
           <Image
             src={imageSrc}
-            alt={listing.text.split('\n')[0]}
+            alt={displayTitle}
             fill
             className="object-cover"
             onError={() => setImageError(true)}
@@ -100,8 +108,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
       <div className="p-4 flex-1 flex flex-col">
         <div className="flex justify-between items-start mb-2">
           <h3 className="text-lg font-semibold line-clamp-2">
-            {listing.text.split('\n')[0].substring(0, 60)}
-            {listing.text.split('\n')[0].length > 60 ? '...' : ''}
+            {displayTitle}
           </h3>
           {listing.price && (
             <span className="font-bold text-primary-600 whitespace-nowrap ml-2">

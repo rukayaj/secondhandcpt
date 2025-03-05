@@ -71,8 +71,15 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 
   const formattedDate = formatDate(listing.date);
   
-  // Generate a title from the text if one isn't provided
-  const displayTitle = listing.title || ((listing.category || '') + (listing.size ? ` (${listing.size})` : '')) || 'Listing';
+  // Generate a clean title from the text if one isn't provided or if it's an image filename
+  const displayTitle = (listing.title && !listing.title.startsWith('IMG-')) 
+    ? listing.title 
+    : ((listing.text.split('\n')
+        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+        .join(' ')
+        .substring(0, 60)) + (listing.text.length > 60 ? '...' : '')) 
+    || ((listing.category || '') + (listing.size ? ` (${listing.size})` : '')) 
+    || 'Listing';
 
   const handleAdditionalImageError = (index: number) => {
     setAdditionalImageErrors(prev => ({
@@ -84,7 +91,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   return (
     <Layout 
       title={`${displayTitle} - Nifty Thrifty`}
-      description={`${listing.title} - ${listing.price ? `R${listing.price}` : 'Price not specified'} - ${listing.location || 'Location not specified'}`}
+      description={`${displayTitle} - ${listing.price ? `R${listing.price}` : 'Price not specified'} - ${listing.location || 'Location not specified'}`}
     >
       <div className="container py-8">
         <div className="mb-6">
@@ -220,42 +227,54 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
           <div className="mt-12">
             <h2 className="text-2xl font-bold mb-6">Similar Items</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {relatedListings.map((item) => (
-                <Link 
-                  key={item.id} 
-                  href={`/listings/${item.id}`}
-                  className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
-                >
-                  <div className="relative h-48 w-full bg-secondary-100">
-                    {item.images && item.images.length > 0 ? (
-                      <Image 
-                        src={item.images[0]} 
-                        alt={item.title || 'Related listing'}
-                        fill
-                        className="object-cover"
-                        onError={(e) => {
-                          // Replace with placeholder when image fails to load
-                          const target = e.target as HTMLImageElement;
-                          target.src = `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(item.category || 'No Image')}`;
-                          target.style.objectFit = 'contain';
-                          // Mark as unoptimized to avoid Next.js image optimization
-                          target.setAttribute('data-unoptimized', 'true');
-                        }}
-                      />
-                    ) : (
-                      <div className="h-full flex items-center justify-center">
-                        <p className="text-secondary-400">No image</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-semibold text-lg mb-1 truncate">
-                      {item.title || (item.category || '') + (item.size ? ` (${item.size})` : '') || 'Listing'}
-                    </h3>
-                    <p className="text-primary-600 font-bold">{item.price ? `R${item.price}` : ''}</p>
-                  </div>
-                </Link>
-              ))}
+              {relatedListings.map((item) => {
+                // Generate a clean title for related items
+                const relatedItemTitle = (item.title && !item.title.startsWith('IMG-'))
+                  ? item.title
+                  : item.text.split('\n')
+                      .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+                      .join(' ')
+                      .substring(0, 60) + (item.text.length > 60 ? '...' : '')
+                  || (item.category || '') + (item.size ? ` (${item.size})` : '')
+                  || 'Listing';
+                
+                return (
+                  <Link 
+                    key={item.id} 
+                    href={`/listings/${item.id}`}
+                    className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+                  >
+                    <div className="relative h-48 w-full bg-secondary-100">
+                      {item.images && item.images.length > 0 ? (
+                        <Image 
+                          src={item.images[0]} 
+                          alt={relatedItemTitle}
+                          fill
+                          className="object-cover"
+                          onError={(e) => {
+                            // Replace with placeholder when image fails to load
+                            const target = e.target as HTMLImageElement;
+                            target.src = `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(item.category || 'No Image')}`;
+                            target.style.objectFit = 'contain';
+                            // Mark as unoptimized to avoid Next.js image optimization
+                            target.setAttribute('data-unoptimized', 'true');
+                          }}
+                        />
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <p className="text-secondary-400">No image</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-semibold text-lg mb-1 truncate">
+                        {relatedItemTitle}
+                      </h3>
+                      <p className="text-primary-600 font-bold">{item.price ? `R${item.price}` : ''}</p>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </div>
         )}
