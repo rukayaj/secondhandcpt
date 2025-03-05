@@ -6,6 +6,7 @@ import Layout from '@/components/Layout';
 import { getAllListings, getListingById, Listing } from '@/utils/parser';
 import { formatDate, getConditionColor } from '@/utils/helpers';
 import { getValidImagePath } from '@/utils/imageUtils';
+import SafeImage from '@/components/SafeImage';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -53,9 +54,6 @@ interface ListingDetailProps {
 }
 
 export default function ListingDetail({ listing, relatedListings }: ListingDetailProps) {
-  const [mainImageError, setMainImageError] = React.useState(false);
-  const [additionalImageErrors, setAdditionalImageErrors] = React.useState<Record<number, boolean>>({});
-
   if (!listing) {
     return (
       <Layout title="Listing Not Found - Nifty Thrifty">
@@ -82,13 +80,6 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     || ((listing.category || '') + (listing.size ? ` (${listing.size})` : '')) 
     || 'Listing';
 
-  const handleAdditionalImageError = (index: number) => {
-    setAdditionalImageErrors(prev => ({
-      ...prev,
-      [index]: true
-    }));
-  };
-
   return (
     <Layout 
       title={`${displayTitle} - Nifty Thrifty`}
@@ -108,14 +99,14 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
           {/* Left column - Images */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              {listing.images && listing.images.length > 0 && !mainImageError ? (
+              {listing.images && listing.images.length > 0 ? (
                 <div className="relative h-96 w-full">
-                  <Image 
-                    src={getValidImagePath(listing.images[0], listing.category)} 
+                  <SafeImage 
+                    src={listing.images[0]} 
                     alt={listing.title || 'Listing image'}
                     fill
                     className="object-contain"
-                    onError={() => setMainImageError(true)}
+                    category={listing.category}
                   />
                 </div>
               ) : (
@@ -132,17 +123,15 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
             {listing.images && listing.images.length > 1 && (
               <div className="mt-4 grid grid-cols-4 gap-2">
                 {listing.images.slice(1).map((image, index) => (
-                  !additionalImageErrors[index] && (
-                    <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
-                      <Image 
-                        src={getValidImagePath(image, listing.category)} 
-                        alt={`${listing.title} - image ${index + 2}`}
-                        fill
-                        className="object-cover"
-                        onError={() => handleAdditionalImageError(index)}
-                      />
-                    </div>
-                  )
+                  <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
+                    <SafeImage 
+                      src={image} 
+                      alt={`${listing.title} - image ${index + 2}`}
+                      fill
+                      className="object-cover"
+                      category={listing.category}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -247,19 +236,12 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                   >
                     <div className="relative h-48 w-full bg-secondary-100">
                       {item.images && item.images.length > 0 ? (
-                        <Image 
-                          src={getValidImagePath(item.images[0], item.category)} 
+                        <SafeImage 
+                          src={item.images[0]} 
                           alt={relatedItemTitle}
                           fill
                           className="object-cover"
-                          onError={(e) => {
-                            // Replace with placeholder when image fails to load
-                            const target = e.target as HTMLImageElement;
-                            target.src = `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(item.category || 'No Image')}`;
-                            target.style.objectFit = 'contain';
-                            // Mark as unoptimized to avoid Next.js image optimization
-                            target.setAttribute('data-unoptimized', 'true');
-                          }}
+                          category={item.category}
                         />
                       ) : (
                         <div className="h-full flex items-center justify-center">

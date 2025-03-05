@@ -56,33 +56,50 @@ export const availableImages: Set<string> = new Set([
   'IMG-20250226-WA0036.jpg',
   'IMG-20250226-WA0037.jpg',
   'IMG-20250226-WA0038.jpg',
+  'IMG-20250227-WA0018.jpg',
+  'IMG-20250303-WA0018.jpg',
 ]);
 
 /**
- * Get a valid image path or a placeholder
- * @param imagePath The original image path
- * @param category The category for the placeholder
- * @returns A valid image path or a placeholder
+ * Get a valid image path for a listing image
+ * @param imagePath The original image path from the listing data
+ * @param category The category for the placeholder if needed
+ * @returns A valid image path that points to an actual image file
  */
 export function getValidImagePath(imagePath: string, category?: string | null): string {
+  // If the path is empty or invalid, return a placeholder
+  if (!imagePath) {
+    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
+  }
+
   // Extract the filename from the path
   const filename = imagePath.split('/').pop();
-  
-  // Check if the image exists in our available images
-  if (filename && availableImages.has(filename)) {
-    return imagePath;
+  if (!filename) {
+    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
   }
   
-  // If we have a similar image (same pattern but different date), use that
-  if (filename) {
-    const pattern = filename.replace(/IMG-\d{8}-/, '');
+  // Ensure the path starts with /images/listings/
+  const basePath = '/images/listings/';
+  
+  // Check if the exact image exists in our available images set
+  if (availableImages.has(filename)) {
+    return `${basePath}${filename}`;
+  }
+  
+  // Extract the WA code part (e.g., "WA0018.jpg" from "IMG-20250228-WA0018.jpg")
+  const match = filename.match(/WA\d+\.jpg$/);
+  if (match) {
+    const waCode = match[0];
+    
+    // Find any image with the same WA code
     for (const availableImage of Array.from(availableImages)) {
-      if (availableImage.endsWith(pattern)) {
-        return `/images/listings/${availableImage}`;
+      if (availableImage.endsWith(waCode)) {
+        console.log(`Found alternative image for ${filename}: ${availableImage}`);
+        return `${basePath}${availableImage}`;
       }
     }
   }
   
-  // Otherwise, return a placeholder
+  // If no matching image found, return a placeholder
   return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
 } 
