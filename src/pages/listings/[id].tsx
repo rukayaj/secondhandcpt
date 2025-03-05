@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { getAllListings, getListingById, Listing } from '@/utils/parser';
 import { formatDate, getConditionColor } from '@/utils/helpers';
+import { getValidImagePath } from '@/utils/imageUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -110,7 +111,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
               {listing.images && listing.images.length > 0 && !mainImageError ? (
                 <div className="relative h-96 w-full">
                   <Image 
-                    src={listing.images[0]} 
+                    src={getValidImagePath(listing.images[0], listing.category)} 
                     alt={listing.title || 'Listing image'}
                     fill
                     className="object-contain"
@@ -134,7 +135,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                   !additionalImageErrors[index] && (
                     <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
                       <Image 
-                        src={image} 
+                        src={getValidImagePath(image, listing.category)} 
                         alt={`${listing.title} - image ${index + 2}`}
                         fill
                         className="object-cover"
@@ -247,7 +248,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                     <div className="relative h-48 w-full bg-secondary-100">
                       {item.images && item.images.length > 0 ? (
                         <Image 
-                          src={item.images[0]} 
+                          src={getValidImagePath(item.images[0], item.category)} 
                           alt={relatedItemTitle}
                           fill
                           className="object-cover"

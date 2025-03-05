@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Listing } from '@/utils/parser';
 import { formatDate, getConditionColor } from '@/utils/helpers';
+import { getValidImagePath } from '@/utils/imageUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -52,11 +53,6 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const formattedDate = formatDate(listing.date);
   const [imageError, setImageError] = React.useState(false);
 
-  // Use placeholder image if no images are available or if there was an error loading the image
-  const imageSrc = (listing.images && listing.images.length > 0 && !listing.isISO && !imageError)
-    ? listing.images[0]
-    : `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
-
   // Generate a display title that doesn't include image filenames
   const displayTitle = listing.title && !listing.title.startsWith('IMG-')
     ? listing.title
@@ -64,6 +60,11 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
         .join(' ')
         .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
+
+  // Use a valid image path or a placeholder
+  const imageSrc = (listing.images && listing.images.length > 0 && !listing.isISO && !imageError)
+    ? getValidImagePath(listing.images[0], listing.category)
+    : `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
 
   return (
     <Link href={`/listings/${listing.id}`} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
