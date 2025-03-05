@@ -14,7 +14,9 @@
         "filter-listings": "ts-node src/scripts/filterListings.ts",
         "convert-listings": "ts-node src/scripts/convertListingsToAppFormat.ts",
         "integrate-listings": "ts-node src/scripts/integrateNiftyThriftyListings.ts",
-        "import-whatsapp-group": "ts-node src/scripts/importWhatsAppGroup.ts"
+        "import-whatsapp-group": "ts-node src/scripts/importWhatsAppGroup.ts",
+        "update-listings-without-images": "ts-node src/scripts/updateListingsWithoutImages.ts",
+        "manually-review-listings": "ts-node src/scripts/manuallyReviewListingsWithoutImages.ts"
     },
     "dependencies": {
         "classnames": "^2.5.1",
