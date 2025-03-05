@@ -12,7 +12,7 @@ interface LocationsPageProps {
 
 export default function LocationsPage({ locations }: LocationsPageProps) {
   return (
-    <Layout title="Locations - SecondHandCPT">
+    <Layout title="Locations - Nifty Thrifty">
       <div className="container py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-4">Locations</h1>

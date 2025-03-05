@@ -5,16 +5,16 @@ import Link from 'next/link';
 export default function AboutPage() {
   return (
     <Layout 
-      title="About - SecondHandCPT" 
-      description="Learn about SecondHandCPT, the premier marketplace for second-hand baby items in Cape Town."
+      title="About - Nifty Thrifty" 
+      description="Learn about Nifty Thrifty, the premier marketplace for second-hand baby items in Cape Town."
     >
       <div className="container py-8">
         <div className="max-w-3xl mx-auto">
-          <h1 className="text-3xl font-bold mb-6">About SecondHandCPT</h1>
+          <h1 className="text-3xl font-bold mb-6">About Nifty Thrifty</h1>
           
           <div className="prose prose-lg max-w-none">
             <p>
-              SecondHandCPT is a dedicated marketplace for parents in Cape Town looking to buy and sell second-hand baby items. 
+              Nifty Thrifty is a dedicated marketplace for parents in Cape Town looking to buy and sell second-hand baby items. 
               Our platform brings together listings from various WhatsApp groups, making it easier to find exactly what you need 
               without scrolling through endless messages.
             </p>
@@ -34,7 +34,7 @@ export default function AboutPage() {
             
             <h2>How It Works</h2>
             <p>
-              SecondHandCPT aggregates listings from various WhatsApp groups dedicated to second-hand baby items in Cape Town. 
+              Nifty Thrifty aggregates listings from various WhatsApp groups dedicated to second-hand baby items in Cape Town. 
               Our platform categorizes and organizes these listings, making them searchable and filterable by:
             </p>
             <ul>
@@ -50,7 +50,7 @@ export default function AboutPage() {
             
             <h2>Join Our Community</h2>
             <p>
-              SecondHandCPT is more than just a marketplace—it's a community of parents helping parents. 
+              Nifty Thrifty is more than just a marketplace—it's a community of parents helping parents. 
               By participating, you're not only finding great deals or selling items your child has outgrown, 
               but you're also contributing to a more sustainable future and helping other families in Cape Town.
             </p>
@@ -67,7 +67,7 @@ export default function AboutPage() {
           </div>
           
           <div className="mt-12 bg-primary-50 rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-3">Why Choose SecondHandCPT?</h2>
+            <h2 className="text-xl font-semibold mb-3">Why Choose Nifty Thrifty?</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div className="bg-white rounded-lg p-4 shadow-sm">
                 <h3 className="font-semibold mb-2">Organized & Searchable</h3>

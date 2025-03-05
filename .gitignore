@@ -37,4 +37,5 @@ next-env.d.ts
 /eg-transcripts/
 /src/utils/sampleData.ts
 /src/utils/sampleData.ts.backup
-/src/utils/sampleData.ts.bak 
+/src/utils/sampleData.ts.bak
+/src/utils/sampleData.deduplicated.ts 

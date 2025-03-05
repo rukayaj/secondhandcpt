@@ -86,7 +86,7 @@ export default function HomePage({ featuredListings, recentISO, categories }: Ho
             {categories.slice(0, 8).map((category) => (
               <Link
                 key={category.name}
-                href={`/categories/${encodeURIComponent(category.name.toLowerCase())}`}
+                href={`/listings?category=${encodeURIComponent(category.name)}&page=1`}
                 className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center gap-2">

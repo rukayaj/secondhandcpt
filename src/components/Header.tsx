@@ -19,7 +19,7 @@ const Header: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center">
             <Link href="/" className="text-2xl font-bold text-primary-600">
-              SecondHandCPT
+              Nifty Thrifty
             </Link>
             <span className="ml-2 text-xs bg-primary-100 text-primary-800 px-2 py-1 rounded-full">
               Baby Items

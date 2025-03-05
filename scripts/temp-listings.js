@@ -1,7 +1,7 @@
-import { Listing } from './parser';
+module.exports = 
 
 // Deduplicated listings with sanitized phone numbers
-export const sampleListings: Listing[] = [
+return [
   {
     "id": "1",
     "date": "2025-02-24T17:26:00.000Z",
@@ -1663,6 +1663,111 @@ export const sampleListings: Listing[] = [
     "isISO": true
   },
   {
+    "id": "167",
+    "date": "2025-02-25T18:06:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Naartjie 18 to 24 months cotton track shorts. Good condition R110 for both. Collect Kenilworth Xposted",
+    "images": [
+      "/images/listings/IMG-20250225-WA0030.jpg"
+    ],
+    "price": 110,
+    "condition": "Good",
+    "size": "18-24 months",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "170",
+    "date": "2025-02-25T18:07:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Size 4 woolies canvas shoes. Never worn. R80 Collect Kenilworth Xposted",
+    "images": [
+      "/images/listings/IMG-20250225-WA0033.jpg"
+    ],
+    "price": 80,
+    "condition": "New",
+    "size": "4",
+    "location": "Kenilworth",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "171",
+    "date": "2025-02-25T18:07:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Size 4 Woolies velcro sandals. Good condition R80. Collect Kenilworth Xposted",
+    "images": [
+      "/images/listings/IMG-20250225-WA0034.jpg"
+    ],
+    "price": 80,
+    "condition": "Good",
+    "size": "4",
+    "location": "Kenilworth",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "172",
+    "date": "2025-02-25T18:07:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Size 4 Woolies stokies. Good condition R40. Collect Kenilworth Xposted",
+    "images": [
+      "/images/listings/IMG-20250225-WA0035.jpg"
+    ],
+    "price": 40,
+    "condition": "Good",
+    "size": "4",
+    "location": "Kenilworth",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "173",
+    "date": "2025-02-25T18:07:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Age 2 JK kids cotton top. Good condition except for white spec on extended arm. R30. Collect Kenilworth Xposted",
+    "images": [
+      "/images/listings/IMG-20250225-WA0036.jpg"
+    ],
+    "price": 30,
+    "condition": "Good",
+    "size": "2 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "174",
+    "date": "2025-02-25T18:08:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Age 3 100% cotton tees. Very good condition Cotton On and Lizzard. R130 for both. Collect Kenilworth Xposted",
+    "images": [
+      "/images/listings/IMG-20250225-WA0037.jpg"
+    ],
+    "price": 130,
+    "condition": "Very Good",
+    "size": "3 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "206",
+    "date": "2025-02-27T13:17:00.000Z",
+    "sender": "PHONE_REDACTED_1",
+    "text": "18-24 months clothing item. Good condition. R40. PUDO or PAXI",
+    "images": [
+      "/images/listings/IMG-20250227-WA0044.jpg"
+    ],
+    "price": 40,
+    "condition": "Good",
+    "size": "18-24 months",
+    "location": null,
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
     "id": "207",
     "date": "2025-02-27T13:18:00.000Z",
     "sender": "PHONE_REDACTED_3",
@@ -1675,6 +1780,36 @@ export const sampleListings: Listing[] = [
     "size": "2-3 years",
     "location": null,
     "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "208",
+    "date": "2025-02-27T13:19:00.000Z",
+    "sender": "PHONE_REDACTED_2",
+    "text": "Boys dungaree and top set. Brand: Pep. Size: 18-24 months. Price: R100. Collection: Constantia Village",
+    "images": [
+      "/images/listings/IMG-20250224-WA0025.jpg"
+    ],
+    "price": 100,
+    "condition": "Good",
+    "size": "18-24 months",
+    "location": "Constantia Village",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "209",
+    "date": "2025-02-27T13:20:00.000Z",
+    "sender": "PHONE_REDACTED_3",
+    "text": "Adidas kids UK8.5. Brand new, bought in Australia. R500. Collection in Ottery",
+    "images": [
+      "/images/listings/IMG-20250227-WA0047.jpg"
+    ],
+    "price": 500,
+    "condition": "New",
+    "size": "UK8.5",
+    "location": "Ottery",
+    "category": "Footwear",
     "isISO": false
   },
   {
@@ -1691,6 +1826,21 @@ export const sampleListings: Listing[] = [
     "isISO": true
   },
   {
+    "id": "211",
+    "date": "2025-02-27T13:22:00.000Z",
+    "sender": "PHONE_REDACTED_4",
+    "text": "Winnie the Pooh toddler bed. Includes mattress. Good condition. R950. Collection Wynberg",
+    "images": [
+      "/images/listings/IMG-20250227-WA0048.jpg"
+    ],
+    "price": 950,
+    "condition": "Good",
+    "size": null,
+    "location": "Wynberg",
+    "category": "Furniture",
+    "isISO": false
+  },
+  {
     "id": "212",
     "date": "2025-02-27T13:23:00.000Z",
     "sender": "PHONE_REDACTED_5",
@@ -1702,6 +1852,21 @@ export const sampleListings: Listing[] = [
     "location": null,
     "category": "Furniture",
     "isISO": true
+  },
+  {
+    "id": "213",
+    "date": "2025-02-27T13:24:00.000Z",
+    "sender": "PHONE_REDACTED_33",
+    "text": "Camp cot in perfect condition. R900. Collection Seapoint",
+    "images": [
+      "/images/listings/IMG-20250227-WA0049.jpg"
+    ],
+    "price": 900,
+    "condition": "Perfect",
+    "size": null,
+    "location": "Seapoint",
+    "category": "Furniture",
+    "isISO": false
   },
   {
     "id": "214",
@@ -1730,6 +1895,216 @@ export const sampleListings: Listing[] = [
     "isISO": true
   },
   {
+    "id": "216",
+    "date": "2025-02-27T13:27:00.000Z",
+    "sender": "PHONE_REDACTED_6",
+    "text": "Infantino flip 4 in 1 convertible carrier. R550. New (box is rather damaged but carrier never used). Meet up Muizenberg",
+    "images": [
+      "/images/listings/IMG-20250225-WA0020.jpg"
+    ],
+    "price": 550,
+    "condition": "New",
+    "size": null,
+    "location": "Muizenberg",
+    "category": "Gear",
+    "isISO": false
+  },
+  {
+    "id": "217",
+    "date": "2025-02-27T13:28:00.000Z",
+    "sender": "PHONE_REDACTED_7",
+    "text": "18-24m clothing bundle. Mix of Edgars, Ackermans and PnP clothing. R440",
+    "images": [
+      "/images/listings/IMG-20250225-WA0023.jpg"
+    ],
+    "price": 440,
+    "condition": "Good",
+    "size": "18-24 months",
+    "location": null,
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "219",
+    "date": "2025-02-27T13:30:00.000Z",
+    "sender": "PHONE_REDACTED_9",
+    "text": "LilleBaby 6-in-1 carrier. Newborn to Toddler. Great condition. Not available in SA. R1000. Collection Claremont",
+    "images": [
+      "/images/listings/IMG-20250225-WA0027.jpg"
+    ],
+    "price": 1000,
+    "condition": "Great",
+    "size": null,
+    "location": "Claremont",
+    "category": "Gear",
+    "isISO": false
+  },
+  {
+    "id": "220",
+    "date": "2025-02-27T13:31:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Naartjie cotton track shorts. 18-24 months. Good condition. R110 for both. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0030.jpg"
+    ],
+    "price": 110,
+    "condition": "Good",
+    "size": "18-24 months",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "221",
+    "date": "2025-02-27T13:32:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Woolies body warmer. Age 1.5-2. Good condition. R100. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0031.jpg"
+    ],
+    "price": 100,
+    "condition": "Good",
+    "size": "1.5-2 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "222",
+    "date": "2025-02-27T13:33:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Naartjie hoodie. Age 3. 100% cotton. Very good condition. R120. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250227-WA0056.jpg"
+    ],
+    "price": 120,
+    "condition": "Very Good",
+    "size": "3 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "223",
+    "date": "2025-02-27T13:34:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Woolies canvas shoes. Size 4. Never worn. R80. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0033.jpg"
+    ],
+    "price": 80,
+    "condition": "New",
+    "size": "Size 4",
+    "location": "Kenilworth",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "224",
+    "date": "2025-02-27T13:35:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Woolies velcro sandals. Size 4. Good condition. R80. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0034.jpg"
+    ],
+    "price": 80,
+    "condition": "Good",
+    "size": "Size 4",
+    "location": "Kenilworth",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "225",
+    "date": "2025-02-27T13:36:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Woolies stokies. Size 4. Good condition. R40. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0035.jpg"
+    ],
+    "price": 40,
+    "condition": "Good",
+    "size": "Size 4",
+    "location": "Kenilworth",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "226",
+    "date": "2025-02-27T13:37:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "JK kids cotton top. Age 2. Good condition. R30. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0036.jpg"
+    ],
+    "price": 30,
+    "condition": "Good",
+    "size": "2 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "227",
+    "date": "2025-02-27T13:38:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Cotton On and Lizzard tees. Age 3. Very good condition. R130 for both. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0037.jpg"
+    ],
+    "price": 130,
+    "condition": "Very Good",
+    "size": "3 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "228",
+    "date": "2025-02-27T13:39:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Ergobaby carrier with baby insert. Well loved, newly washed. R600. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250227-WA0062.jpg"
+    ],
+    "price": 600,
+    "condition": "Well-loved",
+    "size": null,
+    "location": "Kenilworth",
+    "category": "Gear",
+    "isISO": false
+  },
+  {
+    "id": "229",
+    "date": "2025-02-27T13:40:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Fisher-Price soft grip spoons. Brand new. Set of 4. R120. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20241009-WA0016.jpg"
+    ],
+    "price": 120,
+    "condition": "New",
+    "size": null,
+    "location": "Kenilworth",
+    "category": "Feeding",
+    "isISO": false
+  },
+  {
+    "id": "230",
+    "date": "2025-02-27T13:41:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Kids sleeping bag. 115cm x 59cm. Good condition. R120. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0038.jpg"
+    ],
+    "price": 120,
+    "condition": "Good",
+    "size": "115cm x 59cm",
+    "location": "Kenilworth",
+    "category": "Bedding",
+    "isISO": false
+  },
+  {
     "id": "231",
     "date": "2025-02-27T13:42:00.000Z",
     "sender": "PHONE_REDACTED_11",
@@ -1741,6 +2116,96 @@ export const sampleListings: Listing[] = [
     "location": null,
     "category": "Toys",
     "isISO": true
+  },
+  {
+    "id": "232",
+    "date": "2025-02-27T13:43:00.000Z",
+    "sender": "PHONE_REDACTED_10",
+    "text": "Naartjie and Hurley t-shirts. Age 2-3. Good condition. R100 for both. Collection Kenilworth",
+    "images": [
+      "/images/listings/IMG-20250225-WA0039.jpg"
+    ],
+    "price": 100,
+    "condition": "Good",
+    "size": "2-3 years",
+    "location": "Kenilworth",
+    "category": "Clothing",
+    "isISO": false
+  },
+  {
+    "id": "233",
+    "date": "2025-02-27T13:44:00.000Z",
+    "sender": "PHONE_REDACTED_12",
+    "text": "Vans UK toddler 4. New. R400. Knysna, can PUDO",
+    "images": [
+      "/images/listings/IMG-20250225-WA0049.jpg"
+    ],
+    "price": 400,
+    "condition": "New",
+    "size": "UK4",
+    "location": "Knysna",
+    "category": "Footwear",
+    "isISO": false
+  },
+  {
+    "id": "234",
+    "date": "2025-02-27T13:45:00.000Z",
+    "sender": "PHONE_REDACTED_12",
+    "text": "Duplo Lego. Great condition. R120. Knysna, can PUDO",
+    "images": [
+      "/images/listings/IMG-20250227-WA0067.jpg"
+    ],
+    "price": 120,
+    "condition": "Great",
+    "size": null,
+    "location": "Knysna",
+    "category": "Toys",
+    "isISO": false
+  },
+  {
+    "id": "235",
+    "date": "2025-02-27T13:46:00.000Z",
+    "sender": "PHONE_REDACTED_12",
+    "text": "Young living feather the owl - diffuser, humidifier, night light, sound machine. Like new. Includes barely used essential oil. R480. Knysna",
+    "images": [
+      "/images/listings/IMG-20250225-WA0051.jpg"
+    ],
+    "price": 480,
+    "condition": "Like New",
+    "size": null,
+    "location": "Knysna",
+    "category": "Other",
+    "isISO": false
+  },
+  {
+    "id": "236",
+    "date": "2025-02-27T13:47:00.000Z",
+    "sender": "PHONE_REDACTED_12",
+    "text": "Flippables limited collection - Nessie. New. R100. Knysna",
+    "images": [
+      "/images/listings/IMG-20250225-WA0052.jpg"
+    ],
+    "price": 100,
+    "condition": "New",
+    "size": null,
+    "location": "Knysna",
+    "category": "Toys",
+    "isISO": false
+  },
+  {
+    "id": "240",
+    "date": "2025-02-27T13:51:00.000Z",
+    "sender": "PHONE_REDACTED_16",
+    "text": "Toddler toilet ladder seat, R250, Collection in Wynberg",
+    "images": [
+      "/images/listings/IMG-20250226-WA0012.jpg"
+    ],
+    "price": 250,
+    "condition": "Good",
+    "size": null,
+    "location": "Wynberg",
+    "category": "Gear",
+    "isISO": false
   },
   {
     "id": "260",

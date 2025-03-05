@@ -47,7 +47,7 @@ export default function ISOPage({ isoPosts, totalPosts }: ISOPageProps) {
   };
 
   return (
-    <Layout title="ISO Posts - SecondHandCPT">
+    <Layout title="ISO Posts - Nifty Thrifty">
       <div className="container">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-4">ISO Posts</h1>

@@ -1,4 +1,4 @@
-# Second Hand CPT
+# Nifty Thrifty
 
 A web application for browsing second-hand baby items in Cape Town. This application displays listings from WhatsApp groups in a user-friendly interface.
 

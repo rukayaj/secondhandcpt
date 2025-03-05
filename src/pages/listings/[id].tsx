@@ -6,15 +6,58 @@ import Layout from '@/components/Layout';
 import { getAllListings, getListingById, Listing } from '@/utils/parser';
 import { formatDate, getConditionColor } from '@/utils/helpers';
 
+// Helper function to get the appropriate FontAwesome icon for each category
+function getCategoryIcon(categoryName: string): string {
+  const iconMap: Record<string, string> = {
+    'Clothing': 'fa-solid fa-shirt',
+    'Toys': 'fa-solid fa-gamepad',
+    'Furniture': 'fa-solid fa-couch',
+    'Footwear': 'fa-solid fa-shoe-prints',
+    'Gear': 'fa-solid fa-baby-carriage',
+    'Feeding': 'fa-solid fa-spoon',
+    'Accessories': 'fa-solid fa-hat-cowboy',
+    'Swimming': 'fa-solid fa-water-ladder',
+    'Bedding': 'fa-solid fa-bed',
+    'Diapers': 'fa-solid fa-toilet-paper',
+    'Books': 'fa-solid fa-book',
+    'Other': 'fa-solid fa-box-open'
+  };
+  
+  return iconMap[categoryName] || 'fa-solid fa-box';
+}
+
+// Helper function to get a color for each category
+function getCategoryColor(categoryName: string): string {
+  const colorMap: Record<string, string> = {
+    'Clothing': '#4F46E5', // indigo
+    'Toys': '#F59E0B',     // amber
+    'Furniture': '#10B981', // emerald
+    'Footwear': '#EC4899',  // pink
+    'Gear': '#6366F1',     // indigo
+    'Feeding': '#EF4444',  // red
+    'Accessories': '#8B5CF6', // purple
+    'Swimming': '#0EA5E9', // sky blue
+    'Bedding': '#14B8A6',  // teal
+    'Diapers': '#F97316',  // orange
+    'Books': '#8B5CF6',    // purple
+    'Other': '#6B7280'     // gray
+  };
+  
+  return colorMap[categoryName] || '#6B7280'; // gray as default
+}
+
 interface ListingDetailProps {
   listing: Listing;
   relatedListings: Listing[];
 }
 
 export default function ListingDetail({ listing, relatedListings }: ListingDetailProps) {
+  const [mainImageError, setMainImageError] = React.useState(false);
+  const [additionalImageErrors, setAdditionalImageErrors] = React.useState<Record<number, boolean>>({});
+
   if (!listing) {
     return (
-      <Layout title="Listing Not Found - SecondHandCPT">
+      <Layout title="Listing Not Found - Nifty Thrifty">
         <div className="container py-12 text-center">
           <h1 className="text-3xl font-bold mb-4">Listing Not Found</h1>
           <p className="mb-6">The listing you're looking for doesn't exist or has been removed.</p>
@@ -31,10 +74,17 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   // Generate a title from the text if one isn't provided
   const displayTitle = listing.title || ((listing.category || '') + (listing.size ? ` (${listing.size})` : '')) || 'Listing';
 
+  const handleAdditionalImageError = (index: number) => {
+    setAdditionalImageErrors(prev => ({
+      ...prev,
+      [index]: true
+    }));
+  };
+
   return (
     <Layout 
-      title={`${displayTitle} - SecondHandCPT`}
-      description={`${displayTitle} - ${listing.price ? `R${listing.price}` : ''} - ${listing.location ?? ''}` as string}
+      title={`${displayTitle} - Nifty Thrifty`}
+      description={`${listing.title} - ${listing.price ? `R${listing.price}` : 'Price not specified'} - ${listing.location || 'Location not specified'}`}
     >
       <div className="container py-8">
         <div className="mb-6">
@@ -50,18 +100,22 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
           {/* Left column - Images */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              {listing.images && listing.images.length > 0 ? (
+              {listing.images && listing.images.length > 0 && !mainImageError ? (
                 <div className="relative h-96 w-full">
                   <Image 
                     src={listing.images[0]} 
                     alt={listing.title || 'Listing image'}
                     fill
                     className="object-contain"
+                    onError={() => setMainImageError(true)}
                   />
                 </div>
               ) : (
                 <div className="h-96 bg-secondary-100 flex items-center justify-center">
-                  <p className="text-secondary-400">No image available</p>
+                  <div className="text-center">
+                    <i className={`${getCategoryIcon(listing.category || 'Other')} text-6xl mb-4`} style={{ color: getCategoryColor(listing.category || 'Other') }}></i>
+                    <p className="text-secondary-400">No image available</p>
+                  </div>
                 </div>
               )}
             </div>
@@ -70,14 +124,17 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
             {listing.images && listing.images.length > 1 && (
               <div className="mt-4 grid grid-cols-4 gap-2">
                 {listing.images.slice(1).map((image, index) => (
-                  <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
-                    <Image 
-                      src={image} 
-                      alt={`${listing.title} - image ${index + 2}`}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
+                  !additionalImageErrors[index] && (
+                    <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
+                      <Image 
+                        src={image} 
+                        alt={`${listing.title} - image ${index + 2}`}
+                        fill
+                        className="object-cover"
+                        onError={() => handleAdditionalImageError(index)}
+                      />
+                    </div>
+                  )
                 ))}
               </div>
             )}

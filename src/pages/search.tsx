@@ -21,7 +21,7 @@ export default function SearchPage({ listings, totalListings, searchTerm }: Sear
   const totalPages = Math.ceil(totalListings / ITEMS_PER_PAGE);
 
   return (
-    <Layout title={`Search Results for "${searchTerm}" - SecondHandCPT`}>
+    <Layout title={`Search Results for "${searchTerm}" - Nifty Thrifty`}>
       <div className="container">
         <h1 className="text-3xl font-bold mb-4">Search Results</h1>
         <p className="text-secondary-600 mb-8">

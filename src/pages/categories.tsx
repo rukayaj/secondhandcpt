@@ -13,7 +13,7 @@ interface CategoryPageProps {
 
 export default function CategoriesPage({ categories }: CategoryPageProps) {
   return (
-    <Layout title="Categories - SecondHandCPT">
+    <Layout title="Categories - Nifty Thrifty">
       <div className="container py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-4">Categories</h1>
@@ -26,7 +26,7 @@ export default function CategoriesPage({ categories }: CategoryPageProps) {
           {categories.map((category) => (
             <Link
               key={category.name}
-              href={`/listings?category=${encodeURIComponent(category.name)}`}
+              href={`/listings?category=${encodeURIComponent(category.name)}&page=1`}
               className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
             >
               <div className="h-48 w-full bg-secondary-100 flex items-center justify-center">

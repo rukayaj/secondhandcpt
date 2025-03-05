@@ -10,7 +10,7 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({
   children,
-  title = 'SecondHandCPT - Baby Items in Cape Town',
+  title = 'Nifty Thrifty - Baby Items in Cape Town',
   description = 'Find second-hand baby items in Cape Town. A better way to browse WhatsApp groups.',
 }) => {
   return (
@@ -35,7 +35,7 @@ const Layout: React.FC<LayoutProps> = ({
             <div className="flex flex-col md:flex-row justify-between items-center">
               <div className="mb-4 md:mb-0">
                 <p className="text-secondary-500 text-sm">
-                  &copy; {new Date().getFullYear()} SecondHandCPT. All rights reserved.
+                  &copy; {new Date().getFullYear()} Nifty Thrifty. All rights reserved.
                 </p>
               </div>
               <div className="flex space-x-6">

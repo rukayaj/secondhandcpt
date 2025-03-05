@@ -194,7 +194,7 @@ export default function ListingsPage({
   const totalPages = Math.ceil(totalListings / ITEMS_PER_PAGE);
 
   return (
-    <Layout title="All Listings - SecondHandCPT">
+    <Layout title="All Listings - Nifty Thrifty">
       <div className="container">
         <h1 className="text-3xl font-bold mb-8">All Listings</h1>
         

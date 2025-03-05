@@ -48,8 +48,8 @@ export default function ContactPage() {
   
   return (
     <Layout 
-      title="Contact Us - SecondHandCPT" 
-      description="Get in touch with the SecondHandCPT team. We'd love to hear from you!"
+      title="Contact Us - Nifty Thrifty" 
+      description="Get in touch with the Nifty Thrifty team. We'd love to hear from you!"
     >
       <div className="container py-8">
         <div className="max-w-3xl mx-auto">
@@ -72,7 +72,7 @@ export default function ContactPage() {
                     </svg>
                     <div>
                       <h3 className="font-semibold">Email</h3>
-                      <p className="text-secondary-600">info@secondhandcpt.co.za</p>
+                      <p className="text-secondary-600">info@niftythrifty.co.za</p>
                     </div>
                   </div>
                   
@@ -211,9 +211,9 @@ export default function ContactPage() {
               </div>
               
               <div>
-                <h3 className="font-semibold text-lg mb-2">Is there a fee to use SecondHandCPT?</h3>
+                <h3 className="font-semibold text-lg mb-2">Is there a fee to use Nifty Thrifty?</h3>
                 <p className="text-secondary-600">
-                  No, SecondHandCPT is completely free to use for both buyers and sellers.
+                  No, Nifty Thrifty is completely free to use for both buyers and sellers.
                 </p>
               </div>
               
