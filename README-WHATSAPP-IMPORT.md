@@ -123,6 +123,28 @@ To protect user privacy:
 - Files with the `.original.ts` extension are automatically added to `.gitignore`
 - Phone numbers are redacted in the public-facing application
 
+## Handling Images
+
+When importing WhatsApp chat exports, the system extracts references to images in the format `IMG-YYYYMMDD-WAXXXX.jpg`. These references are stored in the listings data, but the actual image files need to be manually copied to the correct location.
+
+### Image Location
+
+The application expects images to be located in the following directory:
+
+```
+public/images/listings/
+```
+
+### Adding Images
+
+To add images from WhatsApp exports:
+
+1. Export the images from WhatsApp to your device
+2. Rename the images to match the format referenced in the listings (if needed)
+3. Copy the images to the `public/images/listings/` directory
+
+For more detailed information about handling images, see [README-IMAGES.md](README-IMAGES.md).
+
 ## Customization
 
 ### Filtering Logic

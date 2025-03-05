@@ -233,6 +233,14 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                         alt={item.title || 'Related listing'}
                         fill
                         className="object-cover"
+                        onError={(e) => {
+                          // Replace with placeholder when image fails to load
+                          const target = e.target as HTMLImageElement;
+                          target.src = `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(item.category || 'No Image')}`;
+                          target.style.objectFit = 'contain';
+                          // Mark as unoptimized to avoid Next.js image optimization
+                          target.setAttribute('data-unoptimized', 'true');
+                        }}
                       />
                     ) : (
                       <div className="h-full flex items-center justify-center">

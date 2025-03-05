@@ -53,7 +53,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const [imageError, setImageError] = React.useState(false);
 
   // Use placeholder image if no images are available or if there was an error loading the image
-  const imageSrc = (listing.images.length > 0 && !listing.isISO && !imageError)
+  const imageSrc = (listing.images && listing.images.length > 0 && !listing.isISO && !imageError)
     ? listing.images[0]
     : `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
 
@@ -76,6 +76,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
             fill
             className="object-cover"
             onError={() => setImageError(true)}
+            unoptimized={imageSrc.startsWith('https://placehold.co')}
           />
         )}
         
