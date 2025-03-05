@@ -1,5 +1,4 @@
 import { sampleListings, Listing } from './sampleData.public';
-import { combinedListings } from './combinedListings';
 import { 
   getCategoriesWithCounts as getDynamicCategoriesWithCounts, 
   getLocationsWithCounts 
@@ -7,9 +6,6 @@ import {
 
 // Export the Listing interface for use in other files
 export type { Listing };
-
-// Use combinedListings if available, otherwise fall back to sampleListings
-const allListings = combinedListings.length > 0 ? combinedListings : sampleListings;
 
 // Categories for baby items
 const categories = [
@@ -109,24 +105,24 @@ export const getAllCategories = () => {
 
 // Function to get all listings
 export const getAllListings = (): Listing[] => {
-  return allListings;
+  return sampleListings;
 };
 
 // Function to get listings by category
 export const getListingsByCategory = (categoryName: string): Listing[] => {
-  return allListings.filter(listing => listing.category === categoryName);
+  return sampleListings.filter(listing => listing.category === categoryName);
 };
 
 // Function to get listings by location
 export const getListingsByLocation = (locationName: string): Listing[] => {
-  return allListings.filter(
+  return sampleListings.filter(
     listing => listing.location && listing.location.toLowerCase().includes(locationName.toLowerCase())
   );
 };
 
 // Function to get listings by price range
 export const getListingsByPriceRange = (minPrice: number, maxPrice: number): Listing[] => {
-  return allListings.filter(
+  return sampleListings.filter(
     listing => listing.price !== null && listing.price !== undefined && listing.price >= minPrice && listing.price <= maxPrice
   );
 };
@@ -136,18 +132,18 @@ export const getListingsByDateRange = (days: number): Listing[] => {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - days);
   
-  return allListings.filter(
+  return sampleListings.filter(
     listing => new Date(listing.date) >= cutoffDate
   );
 };
 
 // Function to get a listing by ID
 export const getListingById = (id: string): Listing | undefined => {
-  return allListings.find(listing => listing.id === id);
+  return sampleListings.find(listing => listing.id === id);
 };
 
 export const getISOPosts = (): Listing[] => {
-  return allListings.filter(listing => listing.isISO);
+  return sampleListings.filter(listing => listing.isISO);
 };
 
 // Updated to use dynamic counts
@@ -161,7 +157,7 @@ export const searchListings = (searchTerm: string): Listing[] => {
   
   const searchTermLower = searchTerm.toLowerCase();
   
-  return allListings.filter(listing => {
+  return sampleListings.filter(listing => {
     const textMatch = listing.text.toLowerCase().includes(searchTermLower);
     const categoryMatch = listing.category && listing.category.toLowerCase().includes(searchTermLower);
     const locationMatch = listing.location && listing.location.toLowerCase().includes(searchTermLower);

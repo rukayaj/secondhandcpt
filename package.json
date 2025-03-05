@@ -10,9 +10,11 @@
         "test": "jest",
         "process-whatsapp": "ts-node src/scripts/processNiftyThrifty01Years.ts",
         "enrich-listings": "ts-node src/scripts/enrichListings.ts",
-        "extract-whatsapp": "ts-node src/scripts/extractNiftyThrifty01Years.ts",
-        "convert-listings": "ts-node src/scripts/convertNiftyThrifty01Years.ts",
-        "import-listings-to-app": "ts-node src/scripts/importListingsToApp.ts"
+        "extract-whatsapp": "ts-node src/scripts/extractWhatsAppMessages.ts",
+        "filter-listings": "ts-node src/scripts/filterListings.ts",
+        "convert-listings": "ts-node src/scripts/convertListingsToAppFormat.ts",
+        "integrate-listings": "ts-node src/scripts/integrateNiftyThriftyListings.ts",
+        "import-whatsapp-group": "ts-node src/scripts/importWhatsAppGroup.ts"
     },
     "dependencies": {
         "classnames": "^2.5.1",
