@@ -1,4 +1,5 @@
-import { sampleListings, sampleCategories, sampleLocations } from './sampleData';
+import { sampleListings } from './useSanitizedData';
+import { sampleCategories, sampleLocations } from './sampleData';
 
 export interface Listing {
   id: string;
