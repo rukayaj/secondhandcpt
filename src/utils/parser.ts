@@ -1,5 +1,8 @@
-import { sampleListings } from './useSanitizedData';
-import { sampleCategories, sampleLocations } from './sampleData';
+import { sampleListings } from './sampleData.deduplicated';
+import { 
+  getCategoriesWithCounts as getDynamicCategoriesWithCounts, 
+  getLocationsWithCounts 
+} from './filterUtils';
 
 export interface Listing {
   id: string;
@@ -107,10 +110,46 @@ export const parseWhatsAppChat = (filePath: string): Listing[] => {
   return sampleListings;
 };
 
+// Function to get all categories
+export const getAllCategories = () => {
+  return categories.map(category => category.name);
+};
+
+// Function to get all listings
 export const getAllListings = (): Listing[] => {
   return sampleListings;
 };
 
+// Function to get listings by category
+export const getListingsByCategory = (categoryName: string): Listing[] => {
+  return sampleListings.filter(listing => listing.category === categoryName);
+};
+
+// Function to get listings by location
+export const getListingsByLocation = (locationName: string): Listing[] => {
+  return sampleListings.filter(
+    listing => listing.location && listing.location.toLowerCase().includes(locationName.toLowerCase())
+  );
+};
+
+// Function to get listings by price range
+export const getListingsByPriceRange = (minPrice: number, maxPrice: number): Listing[] => {
+  return sampleListings.filter(
+    listing => listing.price !== null && listing.price >= minPrice && listing.price <= maxPrice
+  );
+};
+
+// Function to get listings by date range
+export const getListingsByDateRange = (days: number): Listing[] => {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+  
+  return sampleListings.filter(
+    listing => new Date(listing.date) >= cutoffDate
+  );
+};
+
+// Function to get a listing by ID
 export const getListingById = (id: string): Listing | undefined => {
   return sampleListings.find(listing => listing.id === id);
 };
@@ -119,26 +158,9 @@ export const getISOPosts = (): Listing[] => {
   return sampleListings.filter(listing => listing.isISO);
 };
 
-export const getListingsByCategory = (category: string): Listing[] => {
-  return sampleListings.filter(listing => listing.category === category);
-};
-
-export const getListingsByLocation = (location: string): Listing[] => {
-  return sampleListings.filter(listing => listing.location === location);
-};
-
-export const getListingsByPriceRange = (minPrice: number, maxPrice: number): Listing[] => {
-  return sampleListings.filter(
-    listing => listing.price !== null && listing.price >= minPrice && listing.price <= maxPrice
-  );
-};
-
+// Updated to use dynamic counts
 export const getCategoriesWithCounts = () => {
-  return sampleCategories;
-};
-
-export const getAllLocations = () => {
-  return sampleLocations;
+  return getDynamicCategoriesWithCounts();
 };
 
 // Function to search listings by a search term

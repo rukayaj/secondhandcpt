@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
-import { getAllLocations } from '@/utils/parser';
+import { getLocationsWithCounts } from '@/utils/filterUtils';
 
 interface LocationsPageProps {
   locations: {
@@ -26,7 +26,7 @@ export default function LocationsPage({ locations }: LocationsPageProps) {
             {locations.map((location, index) => (
               <Link
                 key={location.name}
-                href={`/listings?location=${encodeURIComponent(location.name)}`}
+                href={`/listings?location=${encodeURIComponent(location.name)}&page=1`}
                 className={`p-6 hover:bg-secondary-50 transition-colors ${
                   index % 3 === 0 ? 'md:border-t md:border-secondary-200' : ''
                 }`}
@@ -92,16 +92,16 @@ export default function LocationsPage({ locations }: LocationsPageProps) {
 }
 
 export async function getStaticProps() {
-  const locationNames = getAllLocations();
+  // Get locations with counts directly from the utility function
+  const locations = getLocationsWithCounts();
   
-  // Convert to the expected format with counts
-  const locations = locationNames.map(name => ({
-    name,
-    count: 0 // We don't have counts for locations, so default to 0
-  }));
-  
-  // Sort alphabetically since we don't have counts
-  locations.sort((a, b) => a.name.localeCompare(b.name));
+  // Sort by count (highest first), then alphabetically
+  locations.sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+    return a.name.localeCompare(b.name);
+  });
   
   return {
     props: {

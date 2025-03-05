@@ -10,49 +10,188 @@ import {
   getListingsByLocation, 
   getListingsByPriceRange,
   getCategoriesWithCounts,
-  getAllLocations,
   Listing 
 } from '@/utils/parser';
+import {
+  getPriceRangesWithCounts,
+  getDateRangesWithCounts,
+  getLocationsWithCounts,
+  getCategoriesWithCounts as getDynamicCategoriesWithCounts,
+  filterListings,
+  FilterCriteria,
+  getAllFilterOptions
+} from '@/utils/filterUtils';
 
 interface ListingsPageProps {
   listings: Listing[];
   categories: { name: string; count: number }[];
-  locations: string[];
+  locations: { name: string; count: number }[];
+  priceRanges: { range: string; min: number; max: number; count: number }[];
+  dateRanges: { range: string; days: number; count: number }[];
   totalListings: number;
+  allListings: Listing[]; // All listings for client-side filtering
+  initialFilterCriteria: FilterCriteria; // Initial filter criteria
 }
-
-// Define price ranges
-const priceRanges = [
-  { min: 0, max: 100, label: 'Under R100' },
-  { min: 100, max: 250, label: 'R100 - R250' },
-  { min: 250, max: 500, label: 'R250 - R500' },
-  { min: 500, max: 1000, label: 'R500 - R1000' },
-  { min: 1000, max: 2000, label: 'R1000 - R2000' },
-  { min: 2000, max: 5000, label: 'R2000 - R5000' },
-  { min: 5000, max: 1000000, label: 'Over R5000' },
-];
-
-// Define date ranges
-const dateRanges = [
-  { value: 'today', label: 'Today' },
-  { value: '3days', label: 'Past 3 Days' },
-  { value: 'week', label: 'Past Week' },
-  { value: 'month', label: 'Past Month' },
-];
 
 const ITEMS_PER_PAGE = 16;
 
-export default function ListingsPage({ listings, categories, locations, totalListings }: ListingsPageProps) {
+export default function ListingsPage({ 
+  listings: initialListings, 
+  categories: initialCategories, 
+  locations: initialLocations, 
+  priceRanges: initialPriceRanges,
+  dateRanges: initialDateRanges,
+  totalListings: initialTotalListings,
+  allListings,
+  initialFilterCriteria
+}: ListingsPageProps) {
   const router = useRouter();
   const { category, location, minPrice, maxPrice, dateRange, page = '1' } = router.query;
   
   const currentPage = parseInt(Array.isArray(page) ? page[0] : page, 10);
-  const totalPages = Math.ceil(totalListings / ITEMS_PER_PAGE);
+  
+  // State for client-side filtering
+  const [filterCriteria, setFilterCriteria] = useState<FilterCriteria>(initialFilterCriteria);
+  const [filteredListings, setFilteredListings] = useState<Listing[]>(initialListings);
+  const [categories, setCategories] = useState(initialCategories);
+  const [locations, setLocations] = useState(initialLocations);
+  const [priceRanges, setPriceRanges] = useState(initialPriceRanges);
+  const [dateRanges, setDateRanges] = useState(initialDateRanges);
+  const [totalListings, setTotalListings] = useState(initialTotalListings);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Get selected price range
   const selectedPriceRange = minPrice && maxPrice 
     ? { min: parseInt(minPrice as string, 10), max: parseInt(maxPrice as string, 10) }
     : undefined;
+
+  // Update filter counts when filter criteria change
+  useEffect(() => {
+    // Skip on initial render as we already have server-side data
+    if (isLoading) return;
+    
+    // Filter listings client-side
+    const filtered = filterListings(filterCriteria).filter(listing => !listing.isISO);
+    
+    // Sort by date (newest first)
+    filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // Update state with filtered listings and counts
+    setFilteredListings(filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE));
+    setTotalListings(filtered.length);
+    
+    // Update filter counts
+    setCategories(getDynamicCategoriesWithCounts(filterCriteria));
+    setLocations(getLocationsWithCounts(filterCriteria));
+    setPriceRanges(getPriceRangesWithCounts(filterCriteria));
+    setDateRanges(getDateRangesWithCounts(filterCriteria));
+  }, [filterCriteria, currentPage, isLoading]);
+  
+  // Update filter criteria when URL query params change
+  useEffect(() => {
+    setIsLoading(true);
+    
+    const newFilterCriteria: FilterCriteria = {};
+    
+    if (category) {
+      newFilterCriteria.category = Array.isArray(category) ? category[0] : category;
+    }
+    
+    if (location) {
+      newFilterCriteria.location = Array.isArray(location) ? location[0] : location;
+    }
+    
+    if (minPrice && maxPrice) {
+      newFilterCriteria.minPrice = parseInt(Array.isArray(minPrice) ? minPrice[0] : minPrice, 10);
+      newFilterCriteria.maxPrice = parseInt(Array.isArray(maxPrice) ? maxPrice[0] : maxPrice, 10);
+    }
+    
+    if (dateRange) {
+      const days = parseInt(Array.isArray(dateRange) ? dateRange[0] : dateRange, 10);
+      if (!isNaN(days)) {
+        newFilterCriteria.dateRange = days;
+      }
+    }
+    
+    setFilterCriteria(newFilterCriteria);
+    setIsLoading(false);
+  }, [category, location, minPrice, maxPrice, dateRange]);
+
+  // Convert price ranges to the format expected by FilterSidebar
+  const formattedPriceRanges = priceRanges.map(range => ({
+    min: range.min,
+    max: range.max,
+    label: `${range.range} (${range.count})`
+  }));
+
+  // Convert date ranges to the format expected by FilterSidebar
+  const formattedDateRanges = dateRanges.map(range => ({
+    value: range.days.toString(),
+    label: `${range.range} (${range.count})`
+  }));
+
+  // Handle filter changes
+  const handleFilterChange = (newFilterCriteria: FilterCriteria) => {
+    // Update URL with new filter criteria
+    const query: any = { ...router.query };
+    
+    // Update category
+    if (newFilterCriteria.category) {
+      query.category = newFilterCriteria.category;
+    } else {
+      delete query.category;
+    }
+    
+    // Update location
+    if (newFilterCriteria.location) {
+      query.location = newFilterCriteria.location;
+    } else {
+      delete query.location;
+    }
+    
+    // Update price range
+    if (newFilterCriteria.minPrice !== undefined && newFilterCriteria.maxPrice !== undefined) {
+      query.minPrice = newFilterCriteria.minPrice.toString();
+      query.maxPrice = newFilterCriteria.maxPrice.toString();
+    } else {
+      delete query.minPrice;
+      delete query.maxPrice;
+    }
+    
+    // Update date range
+    if (newFilterCriteria.dateRange) {
+      query.dateRange = newFilterCriteria.dateRange.toString();
+    } else {
+      delete query.dateRange;
+    }
+    
+    // Reset to page 1 when filters change
+    query.page = '1';
+    
+    // Update URL
+    router.push({
+      pathname: router.pathname,
+      query
+    }, undefined, { shallow: true });
+  };
+
+  // Handle clearing a specific filter
+  const handleClearFilter = (filterType: keyof FilterCriteria) => {
+    const newFilterCriteria = { ...filterCriteria };
+    
+    if (filterType === 'minPrice' || filterType === 'maxPrice') {
+      // Clear both min and max price together
+      delete newFilterCriteria.minPrice;
+      delete newFilterCriteria.maxPrice;
+    } else {
+      delete newFilterCriteria[filterType];
+    }
+    
+    handleFilterChange(newFilterCriteria);
+  };
+
+  // Calculate total pages
+  const totalPages = Math.ceil(totalListings / ITEMS_PER_PAGE);
 
   return (
     <Layout title="All Listings - SecondHandCPT">
@@ -64,20 +203,99 @@ export default function ListingsPage({ listings, categories, locations, totalLis
           <FilterSidebar
             categories={categories}
             locations={locations}
-            priceRanges={priceRanges}
-            dateRanges={dateRanges}
-            selectedCategory={category as string}
-            selectedLocation={location as string}
-            selectedPriceRange={selectedPriceRange}
-            selectedDateRange={dateRange as string}
+            priceRanges={formattedPriceRanges}
+            dateRanges={formattedDateRanges}
+            selectedCategory={filterCriteria.category}
+            selectedLocation={filterCriteria.location}
+            selectedPriceRange={
+              filterCriteria.minPrice !== undefined && filterCriteria.maxPrice !== undefined
+                ? { min: filterCriteria.minPrice, max: filterCriteria.maxPrice }
+                : undefined
+            }
+            selectedDateRange={filterCriteria.dateRange?.toString()}
+            onFilterChange={handleFilterChange}
+            onClearFilter={handleClearFilter}
+            isLoading={isLoading}
           />
           
           {/* Listings */}
           <div className="flex-1">
-            {listings.length > 0 ? (
+            {/* Active filters display */}
+            {Object.keys(filterCriteria).length > 0 && (
+              <div className="mb-6 bg-secondary-50 p-4 rounded-lg">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-secondary-700 font-medium">Active filters:</span>
+                  
+                  {filterCriteria.category && (
+                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
+                      Category: {filterCriteria.category}
+                      <button 
+                        onClick={() => handleClearFilter('category')}
+                        className="ml-2 text-secondary-500 hover:text-secondary-700"
+                        aria-label="Remove category filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  
+                  {filterCriteria.location && (
+                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
+                      Location: {filterCriteria.location}
+                      <button 
+                        onClick={() => handleClearFilter('location')}
+                        className="ml-2 text-secondary-500 hover:text-secondary-700"
+                        aria-label="Remove location filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  
+                  {filterCriteria.minPrice !== undefined && filterCriteria.maxPrice !== undefined && (
+                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
+                      Price: R{filterCriteria.minPrice} - R{filterCriteria.maxPrice}
+                      <button 
+                        onClick={() => handleClearFilter('minPrice')}
+                        className="ml-2 text-secondary-500 hover:text-secondary-700"
+                        aria-label="Remove price filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  
+                  {filterCriteria.dateRange && (
+                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
+                      Date: Past {filterCriteria.dateRange} days
+                      <button 
+                        onClick={() => handleClearFilter('dateRange')}
+                        className="ml-2 text-secondary-500 hover:text-secondary-700"
+                        aria-label="Remove date filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  
+                  <button
+                    onClick={() => handleFilterChange({})}
+                    className="text-primary-600 hover:text-primary-800 text-sm font-medium"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {isLoading ? (
+              <div className="flex justify-center items-center h-64">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+              </div>
+            ) : filteredListings.length > 0 ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {listings.map((listing) => (
+                  {filteredListings.map((listing) => (
                     <ListingCard key={listing.id} listing={listing} />
                   ))}
                 </div>
@@ -91,7 +309,7 @@ export default function ListingsPage({ listings, categories, locations, totalLis
                   Try adjusting your filters or check back later for new listings.
                 </p>
                 <button
-                  onClick={() => router.push('/listings')}
+                  onClick={() => handleFilterChange({})}
                   className="btn btn-primary"
                 >
                   Clear Filters
@@ -110,57 +328,31 @@ export async function getServerSideProps({ query }: { query: any }) {
   const currentPage = parseInt(page, 10);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   
-  // Get all listings
-  let filteredListings = getAllListings().filter(listing => !listing.isISO);
+  // Build filter criteria from query parameters
+  const filterCriteria: FilterCriteria = {};
   
-  // Apply category filter
   if (category) {
-    filteredListings = filteredListings.filter(listing => listing.category === category);
+    filterCriteria.category = category as string;
   }
   
-  // Apply location filter
   if (location) {
-    filteredListings = filteredListings.filter(
-      listing => listing.location && listing.location.toLowerCase().includes(location.toLowerCase())
-    );
+    filterCriteria.location = location as string;
   }
   
-  // Apply price range filter
   if (minPrice && maxPrice) {
-    const min = parseInt(minPrice, 10);
-    const max = parseInt(maxPrice, 10);
-    filteredListings = filteredListings.filter(
-      listing => listing.price !== null && listing.price >= min && listing.price <= max
-    );
+    filterCriteria.minPrice = parseInt(minPrice as string, 10);
+    filterCriteria.maxPrice = parseInt(maxPrice as string, 10);
   }
   
-  // Apply date range filter
   if (dateRange) {
-    const now = new Date();
-    let cutoffDate = new Date();
-    
-    switch (dateRange) {
-      case 'today':
-        cutoffDate.setHours(0, 0, 0, 0); // Start of today
-        break;
-      case '3days':
-        cutoffDate.setDate(now.getDate() - 3);
-        break;
-      case 'week':
-        cutoffDate.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        cutoffDate.setMonth(now.getMonth() - 1);
-        break;
-      default:
-        // No date filter
-        break;
+    const days = parseInt(dateRange as string, 10);
+    if (!isNaN(days)) {
+      filterCriteria.dateRange = days;
     }
-    
-    filteredListings = filteredListings.filter(
-      listing => new Date(listing.date) >= cutoffDate
-    );
   }
+  
+  // Get filtered listings
+  const filteredListings = filterListings(filterCriteria).filter(listing => !listing.isISO);
   
   // Sort by date (newest first)
   filteredListings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -171,18 +363,31 @@ export async function getServerSideProps({ query }: { query: any }) {
   // Paginate results
   const paginatedListings = filteredListings.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   
-  // Get categories with counts
-  const categories = getCategoriesWithCounts();
+  // Get categories with counts based on other filters
+  const categories = getDynamicCategoriesWithCounts(filterCriteria);
   
-  // Get all locations
-  const locations = getAllLocations();
+  // Get locations with counts based on other filters
+  const locations = getLocationsWithCounts(filterCriteria);
+  
+  // Get price ranges with counts based on other filters
+  const priceRanges = getPriceRangesWithCounts(filterCriteria);
+  
+  // Get date ranges with counts based on other filters
+  const dateRanges = getDateRangesWithCounts(filterCriteria);
+  
+  // Get all listings for client-side filtering
+  const allListings = getAllListings().filter(listing => !listing.isISO);
   
   return {
     props: {
       listings: paginatedListings,
       categories,
       locations,
+      priceRanges,
+      dateRanges,
       totalListings,
+      allListings,
+      initialFilterCriteria: filterCriteria,
     },
   };
 } 
