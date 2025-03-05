@@ -75,12 +75,28 @@ function determineCategory(message: string): string | null {
   return null;
 }
 
-function isISOPost(message: string): boolean {
+function isISOPost(message: string, hasImages: boolean = false): boolean {
   const messageLower = message.toLowerCase();
-  return messageLower.includes('iso') || 
-         messageLower.includes('in search of') || 
-         messageLower.includes('looking for') ||
-         messageLower.includes('anyone selling');
+  
+  // If there are explicit ISO indicators in the text, it's an ISO post
+  if (messageLower.includes('iso') || 
+      messageLower.includes('in search of') || 
+      messageLower.includes('looking for')) {
+    return true;
+  }
+  
+  // If there are no images and the text suggests looking for something, it's likely an ISO post
+  if (!hasImages && (
+    messageLower.includes('anyone selling') ||
+    messageLower.includes('anyone have') ||
+    messageLower.includes('does anyone') ||
+    messageLower.startsWith('looking for') ||
+    messageLower.startsWith('wanted')
+  )) {
+    return true;
+  }
+  
+  return false;
 }
 
 async function convertListingsToAppFormat(inputFilePath: string, outputFilePath: string) {
@@ -109,6 +125,9 @@ async function convertListingsToAppFormat(inputFilePath: string, outputFilePath:
         return `/images/${groupName}/${filename}`;
       });
       
+      // Check if the listing has images
+      const hasImages = raw.images.length > 0;
+      
       return {
         id: raw.id,
         date: new Date(`${raw.date} ${raw.time}`).toISOString(),
@@ -121,7 +140,7 @@ async function convertListingsToAppFormat(inputFilePath: string, outputFilePath:
         size: extractSize(raw.message),
         location: extractLocation(raw.message),
         category: determineCategory(raw.message),
-        isISO: isISOPost(raw.message)
+        isISO: isISOPost(raw.message, hasImages)
       };
     });
     

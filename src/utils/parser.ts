@@ -85,12 +85,28 @@ const extractLocation = (text: string): string | null => {
 };
 
 // Function to check if a message is an ISO post
-const isISOPost = (text: string): boolean => {
+const isISOPost = (text: string, hasImages: boolean = false): boolean => {
   const lowerText = text.toLowerCase();
-  return lowerText.includes('iso') || 
-         lowerText.includes('in search of') || 
-         lowerText.includes('looking for') ||
-         lowerText.startsWith('anyone selling');
+  
+  // If there are explicit ISO indicators in the text, it's an ISO post
+  if (lowerText.includes('iso') || 
+      lowerText.includes('in search of') || 
+      lowerText.includes('looking for')) {
+    return true;
+  }
+  
+  // If there are no images and the text suggests looking for something, it's likely an ISO post
+  if (!hasImages && (
+    lowerText.includes('anyone selling') ||
+    lowerText.includes('anyone have') ||
+    lowerText.includes('does anyone') ||
+    lowerText.startsWith('looking for') ||
+    lowerText.startsWith('wanted')
+  )) {
+    return true;
+  }
+  
+  return false;
 };
 
 // Main function to parse the WhatsApp chat export
