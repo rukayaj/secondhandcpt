@@ -235,4 +235,22 @@ export const findDuplicates = (listings: Listing[]): {
   });
   
   return { duplicates, uniqueListings };
-}; 
+};
+
+/**
+ * Get the correct image path based on the listing ID
+ * @param imageName The image filename
+ * @param listingId The listing ID
+ * @returns The correct path to the image
+ */
+export function getCorrectImagePath(imageName: string, listingId: string): string {
+  // Extract the group name from the listing ID
+  if (listingId.includes('nifty-thrifty-0-1-years')) {
+    return `/images/nifty-thrifty-0-1-years/${imageName}`;
+  } else if (listingId.includes('nifty-thrifty-1-3-years')) {
+    return `/images/nifty-thrifty-1-3-years/${imageName}`;
+  } else {
+    // Default to the listings directory for other images
+    return `/images/listings/${imageName}`;
+  }
+} 

@@ -3,8 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Listing } from '@/utils/parser';
 import { formatDate, getConditionColor } from '@/utils/helpers';
-import { getValidImagePath } from '@/utils/imageUtils';
-import SafeImage from './SafeImage';
+import { getCorrectImagePath } from '@/utils/parser';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -52,83 +51,111 @@ interface ListingCardProps {
 
 const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const formattedDate = formatDate(listing.date);
+  const [imageError, setImageError] = React.useState(false);
 
-  // Generate a clean title from the text if one isn't provided or if it's an image filename
-  const displayTitle = (listing.title && !listing.title.startsWith('IMG-')) 
+  // Generate a display title that doesn't include image filenames
+  const displayTitle = listing.title && !listing.title.startsWith('IMG-')
     ? listing.title 
-    : ((listing.text.split('\n')
+    : listing.text.split('\n')
         .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
         .join(' ')
-        .substring(0, 60)) + (listing.text.length > 60 ? '...' : '')) 
-    || ((listing.category || '') + (listing.size ? ` (${listing.size})` : '')) 
-    || 'Listing';
+        .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
+
+  // Use the correct image path based on the listing ID
+  const getImageSrc = () => {
+    if (listing.images && listing.images.length > 0 && !listing.isISO && !imageError) {
+      const imagePath = listing.images[0];
+      const imageName = imagePath.split('/').pop();
+      if (imageName) {
+        return getCorrectImagePath(imageName, listing.id);
+      }
+    }
+    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
+  };
+
+  const imageSrc = getImageSrc();
 
   return (
-    <Link href={`/listings/${listing.id}`} className="group">
-      <div className="bg-white rounded-lg shadow-md overflow-hidden transition-shadow group-hover:shadow-lg">
-        <div className="relative h-48 w-full bg-secondary-100">
-          {listing.images && listing.images.length > 0 ? (
-            <SafeImage
-              src={listing.images[0]}
-              alt={displayTitle}
-              fill
-              className="object-cover"
-              category={listing.category}
-            />
-          ) : (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center">
-                <i className={`${getCategoryIcon(listing.category || 'Other')} text-4xl mb-2`} style={{ color: getCategoryColor(listing.category || 'Other') }}></i>
-                <p className="text-secondary-400 text-sm">No image</p>
-              </div>
-            </div>
-          )}
-          
-          {/* Category badge */}
-          {listing.category && (
-            <div className="absolute top-2 left-2">
-              <span 
-                className="inline-block text-xs font-semibold px-2 py-1 rounded-full shadow-sm"
-                style={{ backgroundColor: getCategoryColor(listing.category), color: 'white' }}
-              >
-                {listing.category}
-              </span>
-            </div>
-          )}
-          
-          {/* ISO badge */}
-          {listing.isISO && (
-            <div className="absolute top-2 right-2">
-              <span className="inline-block text-xs font-semibold px-2 py-1 rounded-full bg-blue-500 text-white shadow-sm">
-                ISO
-              </span>
-            </div>
+    <Link href={`/listings/${listing.id}`} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
+      <div className="relative pt-[75%]">
+        {listing.isISO ? (
+          // For ISO posts, display the category icon instead of an image
+          <div className="absolute inset-0 flex items-center justify-center bg-blue-50">
+            <i 
+              className={`${getCategoryIcon(listing.category || 'Other')} text-6xl`} 
+              style={{ color: getCategoryColor(listing.category || 'Other') }}
+            ></i>
+          </div>
+        ) : (
+          // For regular listings, display the image
+          <Image
+            src={imageSrc}
+            alt={displayTitle}
+            fill
+            className="object-cover"
+            onError={() => setImageError(true)}
+            unoptimized={imageSrc.startsWith('https://placehold.co')}
+          />
+        )}
+        
+        {listing.isISO && (
+          <div className="absolute top-2 left-2 text-xs font-bold px-2 py-1 rounded shadow flex items-center gap-1" style={{ backgroundColor: '#3b82f6', color: 'white' }}>
+            <i className="fa-solid fa-search"></i>
+            <span>ISO</span>
+          </div>
+        )}
+        
+        {listing.condition && (
+          <div 
+            className="absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow"
+            style={getConditionColor(listing.condition)}
+          >
+            {listing.condition}
+          </div>
+        )}
+      </div>
+      
+      <div className="p-4 flex-1 flex flex-col">
+        <div className="flex justify-between items-start mb-2">
+          <h3 className="text-lg font-semibold line-clamp-2">
+            {displayTitle}
+          </h3>
+          {listing.price && (
+            <span className="font-bold text-primary-600 whitespace-nowrap ml-2">
+              R{listing.price}
+            </span>
           )}
         </div>
         
-        <div className="p-4">
-          <h3 className="font-semibold text-lg mb-1 truncate group-hover:text-primary-600 transition-colors">
-            {displayTitle}
-          </h3>
+        <div className="mt-auto pt-4 text-sm text-secondary-500 flex flex-col gap-1">
+          {listing.category && (
+            <div className="flex items-center">
+              <i 
+                className={`${getCategoryIcon(listing.category)} mr-1`} 
+                style={{ color: getCategoryColor(listing.category) }}
+              ></i>
+              <span>{listing.category}</span>
+            </div>
+          )}
           
-          <div className="flex justify-between items-center">
-            <p className="text-primary-600 font-bold">{listing.price ? `R${listing.price}` : ''}</p>
-            
-            {listing.condition && (
-              <span 
-                className="inline-block text-xs font-semibold px-2 py-0.5 rounded"
-                style={getConditionColor(listing.condition)}
-              >
-                {listing.condition}
-              </span>
-            )}
-          </div>
+          {listing.size && (
+            <div className="flex items-center">
+              <i className="fa-solid fa-ruler mr-1"></i>
+              <span>Size: {listing.size}</span>
+            </div>
+          )}
           
           {listing.location && (
-            <p className="text-secondary-500 text-sm mt-2 truncate">
-              <i className="fas fa-map-marker-alt mr-1"></i> {listing.location}
-            </p>
+            <div className="flex items-center">
+              <i className="fa-solid fa-location-dot mr-1"></i>
+              <span>{listing.location}</span>
+            </div>
           )}
+          
+          <div className="flex items-center mt-1">
+            <i className="fa-solid fa-calendar mr-1"></i>
+            <span>{formattedDate}</span>
+          </div>
         </div>
       </div>
     </Link>
