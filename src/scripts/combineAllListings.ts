@@ -7,8 +7,8 @@ import { Listing } from '../utils/sampleData.public';
 import { sampleListings as originalListings } from '../utils/sampleData.deduplicated';
 
 // Constants
-const OUTPUT_PATH = path.resolve(process.cwd(), 'src', 'utils', 'combinedListings.ts');
-const WHATSAPP_EXPORTS_DIR = path.resolve(process.cwd(), 'src', 'data', 'whatsapp-exports');
+const OUTPUT_PATH = path.resolve(__dirname, '..', 'utils', 'combinedListings.ts');
+const WHATSAPP_EXPORTS_DIR = path.resolve(__dirname, '..', 'data', 'whatsapp-exports');
 
 /**
  * Combine all available listings from different sources

@@ -76,8 +76,11 @@ function determineCategory(message: string): string | null {
 }
 
 function isISOPost(message: string): boolean {
-  const isoRegex = /\b(iso|in search of|looking for|wanted|need|searching for)\b/i;
-  return isoRegex.test(message);
+  const messageLower = message.toLowerCase();
+  return messageLower.includes('iso') || 
+         messageLower.includes('in search of') || 
+         messageLower.includes('looking for') ||
+         messageLower.includes('anyone selling');
 }
 
 async function convertListingsToAppFormat(inputFilePath: string, outputFilePath: string) {
@@ -89,14 +92,17 @@ async function convertListingsToAppFormat(inputFilePath: string, outputFilePath:
     const groupName = path.basename(inputFilePath).split('-listings')[0];
     
     // Parse the JSON content
-    const rawListings: RawListing[] = JSON.parse(
-      fileContent.replace('export const potentialListings =', '').replace(/;$/, '')
-    );
+    const match = fileContent.match(/export const potentialListings: ListingCandidate\[\] = (\[[\s\S]*\]);/);
+    if (!match || !match[1]) {
+      throw new Error('Could not extract listings from the file');
+    }
+    
+    const rawListings = JSON.parse(match[1]);
     
     // Convert to app format
-    const appListings: AppListing[] = rawListings.map(raw => {
+    const appListings: AppListing[] = rawListings.map((raw: any) => {
       // Extract images with correct paths
-      const images = raw.images.map(img => {
+      const images = raw.images.map((img: string) => {
         // Extract just the filename
         const filename = img.split('/').pop() || img;
         // Return the path with the correct group folder
@@ -105,12 +111,12 @@ async function convertListingsToAppFormat(inputFilePath: string, outputFilePath:
       
       return {
         id: raw.id,
-        date: raw.date,
-        sender: raw.phone,
+        date: new Date(`${raw.date} ${raw.time}`).toISOString(),
+        sender: raw.phoneNumber,
         text: raw.message,
         title: images.length > 0 ? images[0].split('/').pop()?.replace('.jpg', '') || null : null,
         images,
-        price: raw.price,
+        price: raw.priceValue,
         condition: extractCondition(raw.message),
         size: extractSize(raw.message),
         location: extractLocation(raw.message),
