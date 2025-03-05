@@ -1,5 +1,4 @@
-import { Listing } from './parser';
-import { sampleListings } from './sampleData.deduplicated';
+import { sampleListings, Listing } from './sampleData.public';
 
 /**
  * Filter interface to represent all possible filter criteria
@@ -38,12 +37,14 @@ export function filterListings(filters: FilterCriteria = {}): Listing[] {
     if (filters.minPrice === 0 && filters.maxPrice === 99.99) {
       filteredListings = filteredListings.filter(
         listing => listing.price !== null && 
+                  listing.price !== undefined &&
                   listing.price >= filters.minPrice! && 
                   listing.price < 100
       );
     } else {
       filteredListings = filteredListings.filter(
         listing => listing.price !== null && 
+                  listing.price !== undefined &&
                   listing.price >= filters.minPrice! && 
                   listing.price <= filters.maxPrice!
       );
@@ -162,6 +163,7 @@ export function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
       count = filteredListings.filter(
         (listing: Listing) => 
           listing.price !== null && 
+          listing.price !== undefined &&
           listing.price >= range.min && 
           listing.price < 100
       ).length;
@@ -169,6 +171,7 @@ export function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
       count = filteredListings.filter(
         (listing: Listing) => 
           listing.price !== null && 
+          listing.price !== undefined &&
           listing.price >= range.min && 
           listing.price <= range.max
       ).length;

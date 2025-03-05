@@ -1,23 +1,11 @@
-import { sampleListings } from './sampleData.deduplicated';
+import { sampleListings, Listing } from './sampleData.public';
 import { 
   getCategoriesWithCounts as getDynamicCategoriesWithCounts, 
   getLocationsWithCounts 
 } from './filterUtils';
 
-export interface Listing {
-  id: string;
-  date: string;
-  sender: string;
-  text: string;
-  title?: string;
-  images: string[];
-  price: number | null;
-  condition: string | null;
-  size: string | null;
-  location: string | null;
-  category: string | null;
-  isISO: boolean;
-}
+// Export the Listing interface for use in other files
+export type { Listing };
 
 // Categories for baby items
 const categories = [
@@ -135,7 +123,7 @@ export const getListingsByLocation = (locationName: string): Listing[] => {
 // Function to get listings by price range
 export const getListingsByPriceRange = (minPrice: number, maxPrice: number): Listing[] => {
   return sampleListings.filter(
-    listing => listing.price !== null && listing.price >= minPrice && listing.price <= maxPrice
+    listing => listing.price !== null && listing.price !== undefined && listing.price >= minPrice && listing.price <= maxPrice
   );
 };
 
