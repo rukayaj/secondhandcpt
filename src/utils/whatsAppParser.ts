@@ -4,9 +4,26 @@ import { Listing } from './sampleData.public';
  * Parse a WhatsApp chat export into an array of listings
  * @param chatContent The content of the WhatsApp chat export
  * @param groupName The name of the WhatsApp group (used for categorization)
+ * @param options Optional configuration for the parser
  * @returns An array of parsed listings
  */
-export function parseWhatsAppChat(chatContent: string, groupName: string): Listing[] {
+export function parseWhatsAppChat(
+  chatContent: string, 
+  groupName: string,
+  options: {
+    minMessageLength?: number;
+    requirePrice?: boolean;
+    excludeISO?: boolean;
+    sellerIdentification?: boolean;
+  } = {}
+): Listing[] {
+  const {
+    minMessageLength = 20, // Minimum characters to consider as a listing
+    requirePrice = false,  // Whether to require a price to be present
+    excludeISO = false,    // Whether to exclude ISO (In Search Of) posts
+    sellerIdentification = true // Whether to try to identify if the message is from a seller
+  } = options;
+  
   const lines = chatContent.split('\n');
   const listings: Listing[] = [];
   
@@ -18,11 +35,16 @@ export function parseWhatsAppChat(chatContent: string, groupName: string): Listi
   const messageRegex = /^\[(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}:\d{2})\] ([^:]+): (.*)$/;
   const imageRegex = /IMG-\d{8}-WA\d{4}\.jpg/g;
   const priceRegex = /R\s*(\d+)/i;
-  const isoRegex = /\b(iso|in search of|looking for)\b/i;
+  const isoRegex = /\b(iso|in\s+search\s+of|looking\s+for)\b/i;
+  const sellerRegex = /\b(selling|sale|sell|available|offer|price|R\d+)\b/i;
+  const shortReplyRegex = /^(yes|no|ok|okay|thanks|thank you|great|cool|nice|sure|maybe|dm|pm|message|chat|call|text|interested|available|sold|pending|reserved|hi|hello|hey|thx|ty|👍|👋|🙏|😊)[\s\.,!]*$/i;
+  const questionRegex = /^(is|are|does|do|can|could|would|will|has|have|had|was|were|should|may|might)[\s\w\.,!]*\?$/i;
   
   // Process each line
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i].trim();
+    if (!line) continue; // Skip empty lines
+    
     const match = line.match(messageRegex);
     
     if (match) {
@@ -33,6 +55,15 @@ export function parseWhatsAppChat(chatContent: string, groupName: string): Listi
       
       // Extract date, time, sender, and message
       const [_, dateStr, timeStr, sender, message] = match;
+      const trimmedMessage = message.trim();
+      
+      // Skip short replies, questions, or common non-listing messages
+      if (shortReplyRegex.test(trimmedMessage) || questionRegex.test(trimmedMessage) || trimmedMessage.length < 5) {
+        currentListing = null;
+        messageBuffer = [];
+        imageBuffer = [];
+        continue;
+      }
       
       // Parse date
       const dateParts = dateStr.split('/');
@@ -50,37 +81,72 @@ export function parseWhatsAppChat(chatContent: string, groupName: string): Listi
       
       const date = new Date(year, month, day, hour, minute, second);
       
+      // Check if this is likely a listing based on content
+      const isISO = isoRegex.test(trimmedMessage);
+      const isSeller = sellerRegex.test(trimmedMessage);
+      const hasPrice = priceRegex.test(trimmedMessage);
+      
+      // For ISO posts, we always consider them valid listings regardless of length
+      // For other posts, they need to meet certain criteria
+      let isValidListing = false;
+      
+      if (isISO) {
+        isValidListing = true; // ISO posts are always valid
+      } else {
+        isValidListing = hasPrice || (isSeller && trimmedMessage.length >= minMessageLength);
+      }
+      
+      // Skip if it doesn't meet our criteria for a listing
+      if (!isValidListing) {
+        currentListing = null;
+        messageBuffer = [];
+        imageBuffer = [];
+        continue;
+      }
+      
+      // Skip ISO posts if excludeISO is true
+      if (excludeISO && isISO) {
+        currentListing = null;
+        messageBuffer = [];
+        imageBuffer = [];
+        continue;
+      }
+      
+      // Extract price from ISO post if it mentions a budget
+      let isoPrice: number | null = null;
+      if (isISO) {
+        const budgetMatch = trimmedMessage.match(/budget\s*(?:around|about)?\s*R\s*(\d+)/i);
+        if (budgetMatch && budgetMatch[1]) {
+          isoPrice = parseInt(budgetMatch[1], 10);
+        }
+      }
+      
       // Start a new listing
       currentListing = {
         id: `${groupName}-${listings.length + 1}`,
         date: date.toISOString(),
         sender: sender.trim(),
-        text: message.trim(),
+        text: trimmedMessage,
         images: [],
-        price: null,
+        price: isISO ? isoPrice : null,
         condition: null,
         size: null,
         location: null,
         category: null,
-        isISO: false
+        isISO: isISO
       };
       
-      messageBuffer = [message.trim()];
+      messageBuffer = [trimmedMessage];
       imageBuffer = [];
       
       // Extract images from the message
-      const imageMatches = message.match(imageRegex);
+      const imageMatches = trimmedMessage.match(imageRegex);
       if (imageMatches) {
         imageBuffer.push(...imageMatches);
       }
-      
-      // Check if this is an ISO post
-      if (isoRegex.test(message)) {
-        currentListing.isISO = true;
-      }
     } else if (currentListing) {
       // This is a continuation of the current message
-      messageBuffer.push(line.trim());
+      messageBuffer.push(line);
       
       // Extract images from the line
       const imageMatches = line.match(imageRegex);
@@ -102,7 +168,7 @@ export function parseWhatsAppChat(chatContent: string, groupName: string): Listi
     if (!currentListing) return;
     
     // Combine all message lines
-    const fullText = messageBuffer.join('\n');
+    const fullText = messageBuffer.join('\n').trim();
     currentListing.text = fullText;
     
     // Set images
@@ -110,10 +176,12 @@ export function parseWhatsAppChat(chatContent: string, groupName: string): Listi
       currentListing.images = [...imageBuffer];
     }
     
-    // Extract price
-    const priceMatch = fullText.match(priceRegex);
-    if (priceMatch && priceMatch[1]) {
-      currentListing.price = parseInt(priceMatch[1], 10);
+    // Extract price if not already set (for non-ISO posts)
+    if (!currentListing.isISO && currentListing.price === null) {
+      const priceMatch = fullText.match(priceRegex);
+      if (priceMatch && priceMatch[1]) {
+        currentListing.price = parseInt(priceMatch[1], 10);
+      }
     }
     
     // Extract other information
@@ -121,6 +189,17 @@ export function parseWhatsAppChat(chatContent: string, groupName: string): Listi
     currentListing.size = extractSize(fullText);
     currentListing.location = extractLocation(fullText);
     currentListing.category = determineCategory(fullText);
+    
+    // Skip if it doesn't meet final criteria
+    if (requirePrice && currentListing.price === null) {
+      return;
+    }
+    
+    // Skip if it doesn't meet the minimum message length requirement
+    // ISO posts are exempt from this check
+    if (!currentListing.isISO && fullText.length < minMessageLength) {
+      return;
+    }
     
     // Add to listings
     listings.push(currentListing as Listing);

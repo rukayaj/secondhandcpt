@@ -38,4 +38,6 @@ next-env.d.ts
 /src/utils/sampleData.ts
 /src/utils/sampleData.ts.backup
 /src/utils/sampleData.ts.bak
-/src/utils/sampleData.deduplicated.ts 
+/src/utils/sampleData.deduplicated.ts
+/whatsapp-exports/
+*.original.ts 

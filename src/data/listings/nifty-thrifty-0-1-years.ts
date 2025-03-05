@@ -1,10 +1,10 @@
-// Generated combined listings file
-// Generated on: 2025-03-05T10:45:13.024Z
+// Generated from WhatsApp messages: nifty-thrifty-0-1-years.ts
+// Generated on: 2025-03-05T10:42:49.930Z
 // Total listings: 10
 
-import { Listing } from './sampleData.public';
+import { Listing } from '../../utils/sampleData.public';
 
-export const combinedListings: Listing[] = [
+export const niftyThrifty01YearsListings: Listing[] = [
   {
     "id": "nifty-thrifty-0-1-years-1",
     "date": "2023-05-12T07:15:32.000Z",
