@@ -28,13 +28,23 @@ async function extractWhatsAppMessages(
     // Read the chat content
     const chatContent = await fs.promises.readFile(inputFilePath, 'utf-8');
     
+    // Check the first few lines to determine the format
+    const firstLines = chatContent.split('\n').slice(0, 10).join('\n');
+    const hasSquareBrackets = firstLines.includes('[');
+    
+    console.log(`File format has square brackets: ${hasSquareBrackets}`);
+    
     // Regular expressions for extracting information
-    const messageStartRegex = /\[(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{1,2}:\d{1,2})\] (\+\d{2} \d{2} \d{3} \d{4}): (.*)/;
+    const dateTimePattern = hasSquareBrackets
+      ? /\[(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{1,2}:\d{1,2})\]/
+      : /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{1,2}(?: [ap]m)?)/;
+    
     const imageRegex = /IMG-\d{8}-WA\d{4}\.jpg/g;
     const mediaOmittedRegex = /<Media omitted>/i;
     const priceRegex = /R\s*(\d+)/i;
+    const phoneNumberRegex = /\+\d{2}\s\d{2}\s\d{3}\s\d{4}/;
     
-    // Split the content by message start pattern
+    // Split the content by lines
     const lines = chatContent.split('\n');
     const messages: RawWhatsAppMessage[] = [];
     
@@ -46,9 +56,9 @@ async function extractWhatsAppMessages(
       const line = lines[i].trim();
       if (!line) continue;
       
-      const messageMatch = line.match(messageStartRegex);
+      const dateTimeMatch = line.match(dateTimePattern);
       
-      if (messageMatch) {
+      if (dateTimeMatch) {
         // If we have a current message, save it before starting a new one
         if (currentMessage) {
           // Combine all message lines
@@ -75,8 +85,55 @@ async function extractWhatsAppMessages(
           messages.push(currentMessage);
         }
         
-        // Extract date, time, phone number, and message
-        const [_, date, time, phoneNumber, messageText] = messageMatch;
+        // Extract date and time
+        const date = dateTimeMatch[1];
+        const time = dateTimeMatch[2];
+        
+        // Extract sender and message
+        let restOfLine = '';
+        if (hasSquareBrackets) {
+          restOfLine = line.substring(dateTimeMatch[0].length).trim();
+          if (restOfLine.startsWith('] ')) {
+            restOfLine = restOfLine.substring(2);
+          }
+        } else {
+          restOfLine = line.substring(dateTimeMatch[0].length).trim();
+          if (restOfLine.startsWith(' - ')) {
+            restOfLine = restOfLine.substring(3);
+          }
+        }
+        
+        // Extract phone number and message
+        let phoneNumber = '';
+        let messageText = '';
+        
+        // Try to find a phone number
+        const phoneNumberMatch = restOfLine.match(phoneNumberRegex);
+        if (phoneNumberMatch) {
+          phoneNumber = phoneNumberMatch[0];
+          
+          // Extract message text (after the colon if present)
+          const colonIndex = restOfLine.indexOf(':');
+          if (colonIndex > -1) {
+            messageText = restOfLine.substring(colonIndex + 1).trim();
+          } else {
+            // If no colon, use everything after the phone number
+            const phoneIndex = restOfLine.indexOf(phoneNumber);
+            if (phoneIndex > -1) {
+              messageText = restOfLine.substring(phoneIndex + phoneNumber.length).trim();
+            }
+          }
+        } else {
+          // No phone number found, split by colon
+          const colonIndex = restOfLine.indexOf(':');
+          if (colonIndex > -1) {
+            phoneNumber = restOfLine.substring(0, colonIndex).trim();
+            messageText = restOfLine.substring(colonIndex + 1).trim();
+          } else {
+            // No colon, use the whole line as the sender
+            phoneNumber = restOfLine;
+          }
+        }
         
         // Create a new message object
         currentMessage = {
@@ -84,13 +141,13 @@ async function extractWhatsAppMessages(
           date,
           time,
           phoneNumber,
-          message: messageText.trim(),
+          message: messageText,
           images: [],
           hasPrice: false,
           priceValue: null
         };
         
-        messageLines = [messageText.trim()];
+        messageLines = [messageText];
       } else if (currentMessage) {
         // This is a continuation of the current message
         messageLines.push(line);
@@ -123,6 +180,8 @@ async function extractWhatsAppMessages(
       messages.push(currentMessage);
     }
     
+    console.log(`Extracted ${messages.length} messages from WhatsApp chat`);
+    
     // Write the messages to the output file
     const outputContent = `// Generated from WhatsApp chat export: ${path.basename(inputFilePath)}
 // Group: ${groupName}
@@ -144,7 +203,6 @@ export const ${groupName.replace(/[^a-zA-Z0-9]/g, '_')}Messages: RawWhatsAppMess
 `;
     
     await fs.promises.writeFile(outputFilePath, outputContent);
-    console.log(`Extracted ${messages.length} messages from WhatsApp chat`);
     console.log(`Output saved to: ${outputFilePath}`);
     
     return;

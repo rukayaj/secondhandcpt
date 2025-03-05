@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { niftyThrifty01YearsListings } from '../data/whatsapp-exports/nifty-thrifty-0-1-years-app';
+import { niftyThrifty01YearsListings } from '../data/whatsapp-exports/nifty-thrifty-0-1-years-full-app';
 import { Listing, sampleListings } from '../utils/sampleData.public';
 
 /**

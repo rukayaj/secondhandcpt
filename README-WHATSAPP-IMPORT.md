@@ -16,6 +16,15 @@ The import process consists of several steps:
 - WhatsApp chat export file (`.txt`) placed in the `whatsapp-exports` directory at the project root
 - Node.js and npm installed
 
+## Supported WhatsApp Export Formats
+
+The import process supports two different WhatsApp export formats:
+
+1. **Square Bracket Format**: `[DD/MM/YY, HH:MM:SS] +XX XX XXX XXXX: Message`
+2. **Dash Format**: `MM/DD/YY, HH:MM am/pm - Sender: Message`
+
+The script automatically detects the format of the export file and processes it accordingly.
+
 ## All-in-One Import Process
 
 For convenience, an all-in-one script is provided that automates the entire import process:
@@ -42,12 +51,12 @@ If you prefer to run each step individually, you can use the following commands:
 ### 1. Extract Raw Messages
 
 ```bash
-npm run extract-whatsapp -- whatsapp-exports/[GROUP_NAME].txt src/data/whatsapp-exports/[GROUP_NAME]-raw.ts
+npm run extract-whatsapp -- whatsapp-exports/[GROUP_NAME].txt src/data/whatsapp-exports/[GROUP_NAME]-raw.ts [GROUP_NAME]
 ```
 
 Example:
 ```bash
-npm run extract-whatsapp -- whatsapp-exports/nifty-thrifty-0-1-years.txt src/data/whatsapp-exports/nifty-thrifty-0-1-years-raw.ts
+npm run extract-whatsapp -- whatsapp-exports/nifty-thrifty-0-1-years.txt src/data/whatsapp-exports/nifty-thrifty-0-1-years-raw.ts nifty-thrifty-0-1-years
 ```
 
 This step extracts all messages from the WhatsApp chat export file and saves them in a structured format.
@@ -87,6 +96,14 @@ This step converts the filtered listings to the application's format, including:
 - Converting image paths
 
 ### 4. Integrate Listings
+
+Before running this step, make sure to update the import statement in `src/scripts/integrateNiftyThriftyListings.ts` to point to the correct app file:
+
+```typescript
+import { niftyThrifty01YearsListings } from '../data/whatsapp-exports/[GROUP_NAME]-app';
+```
+
+Then run:
 
 ```bash
 npm run integrate-listings

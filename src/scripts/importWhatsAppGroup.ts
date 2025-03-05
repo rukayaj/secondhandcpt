@@ -73,7 +73,8 @@ async function importWhatsAppGroup(
       'ts-node',
       'src/scripts/extractWhatsAppMessages.ts',
       inputFilePath,
-      rawFilePath
+      rawFilePath,
+      groupName
     ]);
     
     // Step 2: Filter potential listings
@@ -96,6 +97,20 @@ async function importWhatsAppGroup(
     
     // Step 4: Integrate listings
     console.log('\n--- Step 4: Integrating listings ---');
+    
+    // Update the import in integrateNiftyThriftyListings.ts to use the correct file
+    const integrationScriptPath = path.resolve(process.cwd(), 'src', 'scripts', 'integrateNiftyThriftyListings.ts');
+    const integrationScriptContent = await fs.promises.readFile(integrationScriptPath, 'utf-8');
+    
+    const updatedImport = `import { niftyThrifty01YearsListings } from '../data/whatsapp-exports/${path.basename(appFilePath).replace('.ts', '')}';`;
+    const updatedContent = integrationScriptContent.replace(
+      /import \{ niftyThrifty01YearsListings \} from '\.\.\/data\/whatsapp-exports\/[^']+';/,
+      updatedImport
+    );
+    
+    await fs.promises.writeFile(integrationScriptPath, updatedContent);
+    console.log(`Updated import in integration script to use: ${path.basename(appFilePath)}`);
+    
     await runCommand('npx', [
       'ts-node',
       'src/scripts/integrateNiftyThriftyListings.ts'
