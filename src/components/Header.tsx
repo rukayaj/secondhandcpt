@@ -18,10 +18,11 @@ const Header: React.FC = () => {
       <div className="container py-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center">
-            <Link href="/" className="text-2xl font-bold text-primary-600">
+            <Link href="/" className="text-2xl font-bold text-primary-600 flex items-center">
+              <i className="fas fa-tags mr-2 text-primary-600"></i>
               Nifty Thrifty
             </Link>
-            <span className="ml-2 text-xs bg-primary-100 text-primary-800 px-2 py-1 rounded-full">
+            <span className="ml-2 text-xs bg-primary-600 text-white px-2 py-1 rounded-full">
               Baby Items
             </span>
           </div>
@@ -37,7 +38,7 @@ const Header: React.FC = () => {
               />
               <button
                 type="submit"
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary-500 text-white p-1 rounded-md"
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary-600 text-white p-1 rounded-md hover:bg-primary-700 transition-colors"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -58,13 +59,16 @@ const Header: React.FC = () => {
           </form>
 
           <nav className="flex space-x-6">
-            <Link href="/listings" className="text-secondary-600 hover:text-primary-600">
+            <Link href="/listings" className="text-secondary-600 hover:text-primary-600 transition-colors flex items-center">
+              <i className="fas fa-shopping-bag mr-1"></i>
               All Items
             </Link>
-            <Link href="/iso" className="text-secondary-600 hover:text-primary-600">
+            <Link href="/iso" className="text-secondary-600 hover:text-primary-600 transition-colors flex items-center">
+              <i className="fas fa-search mr-1"></i>
               ISO Posts
             </Link>
-            <Link href="/categories" className="text-secondary-600 hover:text-primary-600">
+            <Link href="/categories" className="text-secondary-600 hover:text-primary-600 transition-colors flex items-center">
+              <i className="fas fa-th-large mr-1"></i>
               Categories
             </Link>
           </nav>
