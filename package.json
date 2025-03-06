@@ -16,12 +16,17 @@
         "integrate-listings": "ts-node src/scripts/integrateNiftyThriftyListings.ts",
         "import-whatsapp-group": "ts-node src/scripts/importWhatsAppGroup.ts",
         "update-listings-without-images": "ts-node src/scripts/updateListingsWithoutImages.ts",
-        "manually-review-listings": "ts-node src/scripts/manuallyReviewListingsWithoutImages.ts"
+        "manually-review-listings": "ts-node src/scripts/manuallyReviewListingsWithoutImages.ts",
+        "setup-supabase": "node src/scripts/setupSupabase.js",
+        "migrate-to-supabase": "node src/scripts/migrateToSupabase.js"
     },
     "dependencies": {
+        "@supabase/ssr": "^0.5.2",
+        "@supabase/supabase-js": "^2.49.1",
         "classnames": "^2.5.1",
         "date-fns": "^3.3.1",
         "next": "^14.1.0",
+        "pg": "^8.13.3",
         "react": "^18.2.0",
         "react-dom": "^18.2.0"
     },
@@ -31,6 +36,7 @@
         "@types/react": "^18.2.55",
         "@types/react-dom": "^18.2.19",
         "autoprefixer": "^10.4.17",
+        "dotenv": "^16.4.7",
         "eslint": "^8.56.0",
         "eslint-config-next": "^14.1.0",
         "jest": "^29.7.0",

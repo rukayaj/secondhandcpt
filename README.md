@@ -1,111 +1,71 @@
-# Second Hand CPT
+# Second-Hand Cape Town Dataset
 
-A marketplace application for second-hand baby items in Cape Town.
+This dataset contains 601 listings from WhatsApp groups for second-hand baby items in Cape Town.
 
-## Project Structure
+## Dataset Statistics
 
-The project is organized as follows:
+- Total listings: 601
+- Listings with price: 550 (92%)
+- Listings with condition: 400 (67%)
+- Listings with collection areas: 479 (80%)
+- Listings with ISO flag: 41 (7%)
 
-```
-src/
-├── components/        # React components
-├── data/              # Data files and WhatsApp exports
-│   └── whatsapp-exports/  # Exported WhatsApp group data
-├── pages/             # Next.js pages
-├── scripts/           # Utility scripts for data processing
-├── styles/            # CSS and styling
-└── utils/             # Utility functions
-    ├── textParsingUtils.ts  # Shared text parsing utilities
-    ├── parser.ts            # Main parser and data access functions
-    ├── combineListings.ts   # Functions to combine listings from different sources
-    └── filterUtils.ts       # Utilities for filtering listings
-```
+### Listings by WhatsApp Group
+- Nifty Thrifty 0-1 year: 424 (71%)
+- Nifty Thrifty 1-3 years: 177 (29%)
 
-## Key Utilities
+### Listings by Condition
+- UNKNOWN: 201 (33%)
+- NEW: 77 (13%)
+- VERY_GOOD: 67 (11%)
+- GOOD: 140 (23%)
+- EXCELLENT: 75 (12%)
+- LIKE_NEW: 18 (3%)
+- FAIR: 19 (3%)
+- POOR: 4 (1%)
 
-### Text Parsing Utilities
+### Top 10 Collection Areas
+- Claremont: 61 listings
+- Kenilworth: 58 listings
+- Rondebosch: 34 listings
+- Constantia: 33 listings
+- Gatesville: 31 listings
+- Diep River: 28 listings
+- Wynberg: 24 listings
+- Plumstead: 22 listings
+- Strandfontein: 22 listings
+- Bergvliet: 21 listings
 
-The `textParsingUtils.ts` file contains shared functions for extracting information from listing messages:
+### Price Statistics
+- Average price: R329
+- Minimum price: R1
+- Maximum price: R8000
+- Free items: 2
 
-- `extractCondition`: Extracts condition information (New, Excellent, Good, etc.)
-- `extractSize`: Extracts size information (0-3 months, 1-2 years, etc.)
-- `extractLocation`: Extracts location information
-- `extractPrice`: Extracts price information
-- `isISOPost`: Determines if a post is an "In Search Of" (ISO) post
-- `determineCategory`: Determines the category of a listing
+## Data Cleaning Process
 
-### Parser
+The dataset was cleaned through a multi-stage process:
+1. Initial extraction from WhatsApp group exports
+2. Automated parsing of listings to identify prices, conditions, and collection areas
+3. Manual review of listings without prices to:
+   - Add missing prices where available
+   - Flag "In Search Of" (ISO) messages
+   - Remove irrelevant messages (greetings, status updates, etc.)
+4. Final cleanup and standardization
 
-The `parser.ts` file provides the main interface for accessing listing data:
+## Dataset Structure
 
-- `getAllListings`: Gets all listings
-- `getListingById`: Gets a listing by ID
-- `getListingsByCategory`: Gets listings by category
-- `getListingsByLocation`: Gets listings by location
-- `getListingsByPriceRange`: Gets listings by price range
-- `getListingsByDateRange`: Gets listings by date range
-- `getISOPosts`: Gets all ISO posts
-- `searchListings`: Searches listings by keyword
-
-## Scripts
-
-The `scripts` directory contains utility scripts for processing data:
-
-- `convertListingsToAppFormat.ts`: Converts raw WhatsApp listings to the app format
-- `combineAllListings.ts`: Combines listings from different sources
-- `updateListingsWithoutImages.ts`: Updates listings without images
-- `manuallyReviewListingsWithoutImages.ts`: Applies manual review decisions
-
-## Maintenance Guidelines
-
-1. **Adding New Categories**: To add a new category, update the `categories` array in `textParsingUtils.ts`.
-
-2. **Updating Text Parsing Logic**: All text parsing logic is centralized in `textParsingUtils.ts` for easier maintenance.
-
-3. **Processing New WhatsApp Exports**:
-   - Place the raw export in `src/data/whatsapp-exports/`
-   - Run the conversion script: `npx ts-node src/scripts/convertListingsToAppFormat.ts <input-file> <output-file>`
-   - Run the combine script: `npx ts-node src/scripts/combineAllListings.ts`
-
-4. **ISO Post Detection**: ISO posts are detected based on:
-   - Explicit keywords like "ISO", "in search of", "looking for"
-   - Absence of images combined with phrases like "anyone selling", "anyone have"
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Run development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Start production server
-npm start
-```
-
-## Features
-
-- Browse listings by category, location, and price range
-- View "In Search Of" (ISO) posts
-- Filter listings by date posted
-- Responsive design for mobile and desktop
-- Search functionality
-
-## Technology Stack
-
-- Next.js
-- TypeScript
-- Tailwind CSS
-- FontAwesome icons
-
-## Data Privacy
-
-This repository uses sanitized data with phone numbers redacted. The original data files are excluded from version control.
+Each listing contains the following fields:
+- `whatsappGroup`: The WhatsApp group the listing was posted in
+- `date`: The date and time the listing was posted
+- `sender`: The phone number of the sender (anonymized)
+- `text`: The text content of the listing
+- `images`: Array of image filenames (if any)
+- `price`: The price in ZAR (null if not specified)
+- `condition`: The condition of the item (NEW, LIKE_NEW, VERY_GOOD, GOOD, FAIR, POOR, or null)
+- `collectionAreas`: Array of collection areas mentioned
+- `iso`: Boolean flag indicating if this is an "In Search Of" message
 
 ## License
 
-MIT 
+This dataset is provided for research and educational purposes only.

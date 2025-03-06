@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
 import { getAllListings, getCategoriesWithCounts, getISOPosts, Listing } from '@/utils/parser';
+import { GetStaticProps } from 'next';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -49,6 +50,34 @@ interface HomePageProps {
   recentISO: Listing[];
   categories: { name: string; count: number }[];
 }
+
+export const getStaticProps: GetStaticProps<HomePageProps> = async () => {
+  // Fetch data from Supabase
+  const allListings = await getAllListings();
+  const isoListings = await getISOPosts();
+  const categoriesWithCounts = await getCategoriesWithCounts();
+  
+  // Get featured listings (most recent non-ISO listings)
+  const featuredListings = allListings
+    .filter(listing => !listing.isISO)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 12);
+  
+  // Get recent ISO posts
+  const recentISO = isoListings
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 6);
+  
+  return {
+    props: {
+      featuredListings,
+      recentISO,
+      categories: categoriesWithCounts
+    },
+    // Revalidate every hour
+    revalidate: 3600
+  };
+};
 
 export default function HomePage({ featuredListings, recentISO, categories }: HomePageProps) {
   return (
@@ -134,33 +163,4 @@ export default function HomePage({ featuredListings, recentISO, categories }: Ho
       </div>
     </Layout>
   );
-}
-
-export async function getStaticProps() {
-  // Get all listings
-  const allListings = getAllListings();
-  
-  // Get featured listings (non-ISO posts with images, sorted by date)
-  const featuredListings = allListings
-    .filter(listing => !listing.isISO && listing.price !== null)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 8);
-  
-  // Get recent ISO posts
-  const recentISO = getISOPosts()
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 4);
-  
-  // Get categories with counts
-  const categories = getCategoriesWithCounts();
-  
-  return {
-    props: {
-      featuredListings,
-      recentISO,
-      categories,
-    },
-    // Revalidate every hour
-    revalidate: 3600,
-  };
 }

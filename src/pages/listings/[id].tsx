@@ -3,7 +3,7 @@ import { GetStaticPaths, GetStaticProps } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
-import { getAllListings, getListingById, Listing, getCorrectImagePath } from '@/utils/parser';
+import { getAllListings, getListingById, Listing, getImageUrl } from '@/utils/parser';
 import { formatDate, getConditionColor } from '@/utils/helpers';
 
 // Helper function to get the appropriate FontAwesome icon for each category
@@ -83,11 +83,13 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 
   // Get the correct image path for a listing image
   const getImageSrc = (imagePath: string, listingId: string) => {
-    const imageName = imagePath.split('/').pop();
-    if (imageName) {
-      return getCorrectImagePath(imageName, listingId);
+    if (imagePath.startsWith('/')) {
+      // If the path already starts with /, it's already a full path
+      return imagePath;
     }
-    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
+    
+    // Otherwise, use the getImageUrl function
+    return getImageUrl(listingId, imagePath);
   };
 
   const handleAdditionalImageError = (index: number) => {
@@ -293,12 +295,12 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 }
 
 export const getStaticPaths: GetStaticPaths = async () => {
-  const listings = getAllListings();
+  const listings = await getAllListings();
   
   const paths = listings.map((listing) => ({
-    params: { id: listing.id.toString() },
+    params: { id: listing.id },
   }));
-  
+
   return {
     paths,
     fallback: 'blocking',
@@ -307,27 +309,31 @@ export const getStaticPaths: GetStaticPaths = async () => {
 
 export const getStaticProps: GetStaticProps = async ({ params }) => {
   const id = params?.id as string;
-  const listing = getListingById(id);
+  const listing = await getListingById(id);
   
-  // If listing not found, return 404
   if (!listing) {
     return {
-      notFound: true
+      notFound: true,
     };
   }
   
-  // Get related listings (same category, excluding current)
-  const relatedListings: Listing[] = listing.category 
-    ? getAllListings()
-        .filter(item => item.id !== listing.id && item.category === listing.category)
-        .slice(0, 4)
-    : [];
+  // Get related listings (same category, excluding current listing)
+  const allListings = await getAllListings();
+  const relatedListings = allListings
+    .filter(
+      (item) => 
+        item.id !== id && 
+        item.category === listing.category && 
+        !item.isISO
+    )
+    .sort(() => Math.random() - 0.5) // Shuffle
+    .slice(0, 4); // Take 4 random related listings
   
   return {
     props: {
       listing,
-      relatedListings
+      relatedListings,
     },
-    revalidate: 3600 // Revalidate every hour
+    revalidate: 3600, // Revalidate every hour
   };
 }; 
