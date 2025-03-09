@@ -45,6 +45,8 @@ next-env.d.ts
 
 # Source data and images
 /src/data/
+/src/data/nifty-thrifty-0-1-years/*
+/src/data/nifty-thrifty-1-3-years/*
 /public/images/nifty-thrifty-0-1-years/
 /public/images/nifty-thrifty-1-3-years/
 /public/images/listings/
