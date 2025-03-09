@@ -16,53 +16,63 @@ The scripts in this directory are designed to:
 
 This application is designed for periodic updates (approximately every 3 days) from WhatsApp groups. The workflow is streamlined to be as seamless as possible:
 
-### 1. Export WhatsApp Chats
+### 1. Scroll WhatsApp Chats
 
-Export the chat history from both WhatsApp groups:
-- "Nifty Thrifty 0-1 year"
-- "Nifty Thrifty 1-3 years"
+First, use the automated scrolling script to load message history:
 
-When exporting, choose "Without Media" as the script will handle images separately.
+```bash
+npm run scroll-whatsapp
+```
 
-### 2. Prepare Files
+This will:
+- Launch WhatsApp Web in a browser window
+- Prompt you to scan a QR code to log in
+- Automatically scroll through all 6 WhatsApp groups
+- Keep the browser open so you can export each chat
 
-1. Place the exported text files in:
-   - `src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year.txt`
-   - `src/data/nifty-thrifty-1-3-years/WhatsApp Chat with Nifty Thrifty 1-3 years.txt`
+> **Important**: WhatsApp only exports messages that have been loaded on your device. This scrolling step ensures you get all recent messages before exporting.
 
-2. Save any new images from the WhatsApp groups to:
-   - `src/data/nifty-thrifty-0-1-years/` (for 0-1 year group)
-   - `src/data/nifty-thrifty-1-3-years/` (for 1-3 years group)
+### 2. Export Chats
 
-   > **Tip**: You can save images directly from WhatsApp to these folders, or use a file manager to copy them over.
+After the scrolling is complete:
+1. In the same browser window, manually export each chat:
+   - Click the three-dot menu (⋮) > More > Export chat > WITHOUT MEDIA
+   - Save each export file to its corresponding directory in `src/data/`
+
+2. Save any new images from WhatsApp to the correct directory.
 
 ### 3. Run Import
 
 Run the full import process with a single command:
 
 ```bash
-npm run import-whatsapp-full
+npm run update-website
 ```
 
 This command will:
+- Check for required files
 - Extract all listings from the WhatsApp exports
-- Only add listings that don't already exist in the database
-- Copy images to the public directory for web display
-- Upload images to Supabase Storage for persistent storage
-- Check for any missing images
-
-### 4. Check for Duplicates (Optional)
-
-If you notice duplicate listings in the application, you can run:
-
-```bash
-npm run find-duplicates
-npm run remove-duplicates
-```
-
-The first command identifies potential duplicates, and the second removes high-confidence duplicates (similarity score > 0.9).
+- Add new listings to the database
+- Copy images to the public directory
+- Check for duplicates
+- Guide you through the entire process
 
 ## Main Scripts
+
+### WhatsApp Scroll Script (`whatsapp-scroll.js`)
+
+This script automates scrolling through WhatsApp Web to load message history before export.
+
+**Usage:**
+```bash
+npm run scroll-whatsapp
+```
+
+**What it does:**
+- Launches a browser with WhatsApp Web
+- Searches for and opens each WhatsApp group
+- Scrolls up to load message history
+- Keeps the browser open for you to export chats
 
 ### WhatsApp Import Script (`whatsapp-import.js`)
 
@@ -114,23 +124,45 @@ node scripts/duplicate-finder.js [options]
 - `--remove`: Remove identified duplicates (use with caution)
 - `--threshold <n>`: Similarity threshold (0-1, default: 0.7)
 
+### Update Website Script (`update-website.sh`)
+
+An all-in-one script that runs the complete update process.
+
+**Usage:**
+```bash
+npm run update-website
+# Or with deployment
+npm run update-website-deploy
+```
+
+**What it does:**
+- Checks for required directories and files
+- Runs the import script with all necessary options
+- Checks for duplicates
+- Asks if you want to remove high-confidence duplicates
+- Optionally deploys to Vercel (with the --deploy flag)
+
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Missing Images**
+1. **WhatsApp Scrolling Issues**
+   - Problem: Script fails to find a group or selector errors
+   - Solution: WhatsApp Web's design may have changed, or the group name might be different. Check the console output for errors and update the script as needed.
+
+2. **Missing Images**
    - Problem: Images mentioned in listings but not found
    - Solution: Ensure images are in the correct source directories and run the import again
 
-2. **Duplicate Listings**
+3. **Duplicate Listings**
    - Problem: Same listing appears multiple times
    - Solution: Run the duplicate finder and remover scripts
 
-3. **Import Errors**
+4. **Import Errors**
    - Problem: Import process fails
    - Solution: Run with `--verbose` flag to see detailed error messages
 
-4. **Database Connection Issues**
+5. **Database Connection Issues**
    - Problem: Cannot connect to Supabase
    - Solution: Check your `.env.local` file for correct credentials
 

@@ -5,19 +5,73 @@
 # This script automates the entire process of updating the website with new WhatsApp listings.
 # It runs the import process, checks for duplicates, and optionally deploys the updates.
 #
-# Usage: ./scripts/update-website.sh [--deploy]
+# Usage: ./scripts/update-website.sh [options]
 #
 # Options:
-#   --deploy: Deploy the updates to Vercel after importing
+#   --deploy         Deploy the updates to Vercel after importing
+#   --scroll         Run the WhatsApp scrolling script first before importing
+#   --scroll-only    Only run the WhatsApp scrolling script (don't import)
 
 # Set script to exit on error
 set -e
+
+# Parse command line arguments
+DEPLOY=false
+SCROLL=false
+SCROLL_ONLY=false
+
+for arg in "$@"
+do
+  case $arg in
+    --deploy)
+      DEPLOY=true
+      shift
+      ;;
+    --scroll)
+      SCROLL=true
+      shift
+      ;;
+    --scroll-only)
+      SCROLL_ONLY=true
+      shift
+      ;;
+  esac
+done
 
 # Display banner
 echo "========================================================"
 echo "  Second-Hand Cape Town - Website Update Script"
 echo "========================================================"
 echo ""
+
+# Step 0: Run the WhatsApp scrolling script if requested
+if [ "$SCROLL" = true ] || [ "$SCROLL_ONLY" = true ]; then
+  echo "Step 0: Scrolling through WhatsApp groups to load message history..."
+  npm run scroll-whatsapp
+  
+  if [ "$SCROLL_ONLY" = true ]; then
+    echo ""
+    echo "Scrolling complete. Exiting as --scroll-only was specified."
+    echo "========================================================"
+    echo "Next steps:"
+    echo "1. Manually export each WhatsApp chat (WITHOUT MEDIA)"
+    echo "2. Save the exported files to the appropriate directories"
+    echo "3. Run this script again without the --scroll-only option to import the data"
+    echo "========================================================"
+    exit 0
+  fi
+  
+  echo ""
+  echo "Scrolling complete. Continuing with import process..."
+  echo ""
+  
+  # Ask user if they've exported the chats
+  read -p "Have you exported all WhatsApp chats? (y/n): " chats_exported
+  if [ "$chats_exported" != "y" ]; then
+    echo "Please export the chats before continuing. Exiting..."
+    exit 1
+  fi
+fi
 
 # Check if the data directories exist
 if [ ! -d "src/data/nifty-thrifty-0-1-years" ] || [ ! -d "src/data/nifty-thrifty-1-3-years" ]; then
@@ -29,9 +83,19 @@ if [ ! -d "src/data/nifty-thrifty-0-1-years" ] || [ ! -d "src/data/nifty-thrifty
 fi
 
 # Check if the WhatsApp export files exist
-if [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year.txt" ]; then
-  echo "Warning: WhatsApp export file for 0-1 year group not found."
-  echo "Expected location: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year.txt"
+if [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (1).txt" ] && [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year.txt" ]; then
+  echo "Warning: WhatsApp export file for 0-1 year group (1) not found."
+  echo "Expected location: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (1).txt"
+  echo ""
+  read -p "Continue anyway? (y/n): " continue_without_file
+  if [ "$continue_without_file" != "y" ]; then
+    exit 1
+  fi
+fi
+
+if [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (2).txt" ]; then
+  echo "Warning: WhatsApp export file for 0-1 year group (2) not found."
+  echo "Expected location: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (2).txt"
   echo ""
   read -p "Continue anyway? (y/n): " continue_without_file
   if [ "$continue_without_file" != "y" ]; then
@@ -66,7 +130,7 @@ if [ "$remove_duplicates" = "y" ]; then
 fi
 
 # Step 3: Deploy if requested
-if [ "$1" = "--deploy" ]; then
+if [ "$DEPLOY" = true ]; then
   echo ""
   echo "Step 3: Deploying updates to Vercel..."
   

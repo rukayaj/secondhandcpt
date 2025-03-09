@@ -10,22 +10,46 @@ This application displays listings from WhatsApp groups for second-hand baby ite
 
 This application is designed to be updated periodically (approximately every 3 days) with new listings from WhatsApp groups. The workflow is as follows:
 
-### Step 1: Export WhatsApp Chat History
+### Step 1: Scroll Through WhatsApp Groups
 
-1. Open each WhatsApp group on your phone
-2. Go to group info > More > Export chat
-3. Choose "Without Media" (the script will handle images separately)
-4. Send the export to yourself (email, cloud storage, etc.)
+First, use the automated scrolling script to ensure all messages are loaded in each WhatsApp group:
 
-### Step 2: Prepare the Export Files
+```bash
+# Install Puppeteer if not already installed
+npm install puppeteer
 
-1. Place the exported text files in the appropriate directories:
-   - `src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year.txt`
+# Run the scrolling script
+npm run scroll-whatsapp
+```
+
+This will:
+1. Launch a browser window with WhatsApp Web
+2. Prompt you to scan the QR code to log in
+3. Automatically scroll through all six WhatsApp groups to load the message history
+4. Keep the browser open so you can export the chats
+
+> **Note:** WhatsApp Web only exports messages that have been loaded on your device. The scrolling script ensures all recent messages are loaded before exporting.
+
+### Step 2: Export WhatsApp Chat History
+
+After the scrolling script completes:
+
+1. In the same browser window that the script opened, manually export each chat:
+   - Open each group
+   - Click the three dots (⋮) in the top-right corner
+   - Select More > Export chat
+   - Choose "WITHOUT MEDIA" (the script will handle images separately)
+   - Save the export files
+
+2. Save the exported chat files to the appropriate directories:
+   - `src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (1).txt`
+   - `src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (2).txt`
    - `src/data/nifty-thrifty-1-3-years/WhatsApp Chat with Nifty Thrifty 1-3 years.txt`
+   - `src/data/nifty-thrifty-modern-cloth-nappies/WhatsApp Chat with Nifty Thrifty Modern Cloth Nappies.txt`
+   - `src/data/nifty-thrifty-bumps-and-boobs/WhatsApp Chat with Nifty Thrifty Bumps & Boobs.txt`
+   - `src/data/nifty-thrifty-kids-3-8-years/WhatsApp Chat with Nifty Thrifty Kids (3-8 years) 2.txt`
 
-2. Copy any new images from WhatsApp to:
-   - `src/data/nifty-thrifty-0-1-years/` (for 0-1 year group)
-   - `src/data/nifty-thrifty-1-3-years/` (for 1-3 years group)
+3. Save any new images from WhatsApp to the corresponding directories.
 
 ### Step 3: Run the Update Script
 
@@ -137,6 +161,7 @@ The application includes several scripts to help with importing and managing lis
 
 ### Main Scripts
 
+- `npm run scroll-whatsapp`: Automatically scroll through WhatsApp Web to load message history
 - `npm run update-website`: All-in-one script for the entire update process
 - `npm run update-website-deploy`: Update and deploy to Vercel
 - `npm run import-whatsapp`: Basic import of new listings
@@ -162,15 +187,20 @@ To run the application locally:
 
 ### Common Issues
 
-1. **Missing Images**: If images are mentioned in listings but not found:
+1. **WhatsApp Scrolling Issues**:
+   - If the scroll script fails to find a group, try running it again
+   - If WhatsApp Web design changes, the selectors in the script may need updating
+   - Ensure you scan the QR code promptly when the browser opens
+
+2. **Missing Images**: If images are mentioned in listings but not found:
    - Check that the images were copied to the correct source directory
    - Run `npm run import-whatsapp-full` again to retry copying and uploading
 
-2. **Duplicate Listings**: If you notice duplicate listings:
+3. **Duplicate Listings**: If you notice duplicate listings:
    - Run `npm run find-duplicates` to identify them
    - Run `npm run remove-duplicates` to remove high-confidence duplicates
 
-3. **Import Errors**: If the import process fails:
+4. **Import Errors**: If the import process fails:
    - Check the console output for specific errors
    - Ensure your WhatsApp export files are in the correct format and location
    - Verify that your Supabase credentials are correct in `.env.local`
