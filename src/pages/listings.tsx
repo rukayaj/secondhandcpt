@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
 import FilterSidebar from '@/components/FilterSidebar';
@@ -9,14 +10,13 @@ import {
   getListingsByCategory, 
   getListingsByLocation, 
   getListingsByPriceRange,
-  getCategoriesWithCounts,
   Listing 
-} from '@/utils/parser';
+} from '@/utils/listingUtils';
 import {
   getPriceRangesWithCounts,
   getDateRangesWithCounts,
   getLocationsWithCounts,
-  getCategoriesWithCounts as getDynamicCategoriesWithCounts,
+  getCategoriesWithCounts,
   filterListings,
   FilterCriteria,
   getAllFilterOptions
@@ -67,25 +67,24 @@ export default function ListingsPage({
 
   // Update filter counts when filter criteria change
   useEffect(() => {
-    // Skip on initial render as we already have server-side data
-    if (isLoading) return;
+    const updateFilterCounts = async () => {
+      try {
+        const categories = await getCategoriesWithCounts(filterCriteria);
+        const locations = await getLocationsWithCounts(filterCriteria);
+        const priceRanges = await getPriceRangesWithCounts(filterCriteria);
+        const dateRanges = await getDateRangesWithCounts(filterCriteria);
+        
+        setCategories(categories);
+        setLocations(locations);
+        setPriceRanges(priceRanges);
+        setDateRanges(dateRanges);
+      } catch (error) {
+        console.error('Error updating filter counts:', error);
+      }
+    };
     
-    // Filter listings client-side
-    const filtered = filterListings(filterCriteria).filter(listing => !listing.isISO);
-    
-    // Sort by date (newest first)
-    filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
-    // Update state with filtered listings and counts
-    setFilteredListings(filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE));
-    setTotalListings(filtered.length);
-    
-    // Update filter counts
-    setCategories(getDynamicCategoriesWithCounts(filterCriteria));
-    setLocations(getLocationsWithCounts(filterCriteria));
-    setPriceRanges(getPriceRangesWithCounts(filterCriteria));
-    setDateRanges(getDateRangesWithCounts(filterCriteria));
-  }, [filterCriteria, currentPage, isLoading]);
+    updateFilterCounts();
+  }, [filterCriteria]);
   
   // Update filter criteria when URL query params change
   useEffect(() => {
@@ -116,6 +115,36 @@ export default function ListingsPage({
     setFilterCriteria(newFilterCriteria);
     setIsLoading(false);
   }, [category, location, minPrice, maxPrice, dateRange]);
+
+  // Filter listings client-side when filter criteria or page changes
+  useEffect(() => {
+    // Skip on initial render as we already have server-side data
+    if (isLoading) return;
+    
+    const filterListingsClientSide = async () => {
+      try {
+        // Filter listings client-side
+        const filtered = await filterListings(filterCriteria);
+        const nonISOFiltered = filtered.filter((listing: Listing) => !listing.isISO);
+        
+        // Sort by date (newest first)
+        nonISOFiltered.sort((a: Listing, b: Listing) => 
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        
+        // Update state with filtered listings and counts
+        setFilteredListings(nonISOFiltered.slice(
+          (currentPage - 1) * ITEMS_PER_PAGE, 
+          currentPage * ITEMS_PER_PAGE
+        ));
+        setTotalListings(nonISOFiltered.length);
+      } catch (error) {
+        console.error('Error filtering listings client-side:', error);
+      }
+    };
+    
+    filterListingsClientSide();
+  }, [filterCriteria, currentPage, isLoading]);
 
   // Convert price ranges to the format expected by FilterSidebar
   const formattedPriceRanges = priceRanges.map(range => ({
@@ -196,7 +225,9 @@ export default function ListingsPage({
   return (
     <Layout title="All Listings - Nifty Thrifty">
       <div className="container">
-        <h1 className="text-3xl font-bold mb-8">All Listings</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold">All Listings</h1>
+        </div>
         
         <div className="flex flex-col md:flex-row">
           {/* Filters */}
@@ -351,43 +382,52 @@ export async function getServerSideProps({ query }: { query: any }) {
     }
   }
   
-  // Get filtered listings
-  const filteredListings = filterListings(filterCriteria).filter(listing => !listing.isISO);
-  
-  // Sort by date (newest first)
-  filteredListings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  
-  // Get total count for pagination
-  const totalListings = filteredListings.length;
-  
-  // Paginate results
-  const paginatedListings = filteredListings.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  
-  // Get categories with counts based on other filters
-  const categories = getDynamicCategoriesWithCounts(filterCriteria);
-  
-  // Get locations with counts based on other filters
-  const locations = getLocationsWithCounts(filterCriteria);
-  
-  // Get price ranges with counts based on other filters
-  const priceRanges = getPriceRangesWithCounts(filterCriteria);
-  
-  // Get date ranges with counts based on other filters
-  const dateRanges = getDateRangesWithCounts(filterCriteria);
-  
-  // Get all listings for client-side filtering
-  const allListings = getAllListings().filter(listing => !listing.isISO);
-  
-  return {
-    props: {
-      listings: paginatedListings,
-      categories,
-      locations,
-      priceRanges,
-      dateRanges,
-      totalListings,
-      allListings,
-      initialFilterCriteria: filterCriteria,
-    },
-  };
+  try {
+    // Get filtered listings
+    const filteredListings = await filterListings(filterCriteria);
+    const nonISOListings = filteredListings.filter((listing: Listing) => !listing.isISO);
+    
+    // Sort by date (newest first)
+    nonISOListings.sort((a: Listing, b: Listing) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // Get total count for pagination
+    const totalListings = nonISOListings.length;
+    
+    // Paginate results
+    const paginatedListings = nonISOListings.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    
+    // Get filter options with counts
+    const filterOptions = await getAllFilterOptions(filterCriteria);
+    
+    // Get all listings for client-side filtering
+    const allListings = await getAllListings();
+    const allNonISOListings = allListings.filter((listing: Listing) => !listing.isISO);
+    
+    return {
+      props: {
+        listings: paginatedListings,
+        categories: filterOptions.categories,
+        locations: filterOptions.locations,
+        priceRanges: filterOptions.priceRanges,
+        dateRanges: filterOptions.dateRanges,
+        totalListings,
+        allListings: allNonISOListings,
+        initialFilterCriteria: filterCriteria,
+      },
+    };
+  } catch (error) {
+    console.error('Error in getServerSideProps:', error);
+    return {
+      props: {
+        listings: [],
+        categories: [],
+        locations: [],
+        priceRanges: [],
+        dateRanges: [],
+        totalListings: 0,
+        allListings: [],
+        initialFilterCriteria: filterCriteria,
+      },
+    };
+  }
 } 

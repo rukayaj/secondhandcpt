@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import Layout from '@/components/Layout';
-import { getCategoriesWithCounts } from '@/utils/parser';
+import { getCategoriesWithCounts } from '@/utils/filterUtils';
 
 interface CategoryPageProps {
   categories: {
@@ -87,15 +87,25 @@ function getCategoryColor(categoryName: string): string {
 }
 
 export async function getStaticProps() {
-  const categories = getCategoriesWithCounts();
-  
-  // Sort categories by count (most items first)
-  categories.sort((a, b) => b.count - a.count);
-  
-  return {
-    props: {
-      categories,
-    },
-    revalidate: 3600, // Revalidate every hour
-  };
+  try {
+    const categories = await getCategoriesWithCounts();
+    
+    // Sort categories by count (most items first)
+    categories.sort((a, b) => b.count - a.count);
+    
+    return {
+      props: {
+        categories,
+      },
+      revalidate: 3600, // Revalidate every hour
+    };
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    return {
+      props: {
+        categories: [],
+      },
+      revalidate: 3600,
+    };
+  }
 } 

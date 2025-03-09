@@ -1,4 +1,4 @@
-import { supabase, TABLES, ListingRecord } from './supabase';
+import { supabase, TABLES, ListingRecord } from '@/utils/supabase';
 
 // Interface for the listing data used in the application
 export interface Listing {
@@ -12,7 +12,7 @@ export interface Listing {
   condition: string | null;
   collectionAreas: string[];
   dateAdded: string;
-  checkedOn: string;
+  checkedOn: string | null;
   isISO: boolean; // In Search Of
 }
 
@@ -24,12 +24,12 @@ export function convertRecordToListing(record: ListingRecord): Listing {
     date: record.date,
     sender: record.sender,
     text: record.text,
-    images: record.images,
+    images: record.images || [],
     price: record.price,
     condition: record.condition,
-    collectionAreas: record.collection_areas,
-    dateAdded: record.date_added,
-    checkedOn: record.checked_on,
+    collectionAreas: record.collection_areas || [],
+    dateAdded: record.date_added || '',
+    checkedOn: record.checked_on || null,
     isISO: record.text.toLowerCase().includes('iso') || record.text.toLowerCase().includes('in search of')
   };
 }
@@ -141,4 +141,20 @@ export async function getCategoriesWithCounts(): Promise<{ name: string; count: 
     
     return { name: category, count };
   }).sort((a, b) => b.count - a.count);
+}
+
+// Get a listing by ID
+export async function getListingById(id: string): Promise<Listing | null> {
+  const { data, error } = await supabase
+    .from(TABLES.LISTINGS)
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    console.error('Error fetching listing by ID:', error);
+    return null;
+  }
+
+  return convertRecordToListing(data as ListingRecord);
 } 

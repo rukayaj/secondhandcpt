@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
 import Pagination from '@/components/Pagination';
-import { getISOPosts, Listing } from '@/utils/parser';
+import { getISOPosts, Listing } from '@/utils/listingUtils';
 import { useRouter } from 'next/router';
 
 interface ISOPageProps {
@@ -116,54 +116,62 @@ export default function ISOPage({ isoPosts, totalPosts }: ISOPageProps) {
 }
 
 export async function getServerSideProps({ query }: { query: any }) {
-  const { page = '1', dateRange } = query;
-  const currentPage = parseInt(page, 10);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  
-  // Get all ISO posts
-  let allIsoPosts = getISOPosts();
-  
-  // Apply date range filter
-  if (dateRange) {
-    const now = new Date();
-    let cutoffDate = new Date();
+  try {
+    const { dateRange, page = '1' } = query;
+    const currentPage = parseInt(page, 10);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     
-    switch (dateRange) {
-      case 'today':
-        cutoffDate.setHours(0, 0, 0, 0); // Start of today
-        break;
-      case '3days':
-        cutoffDate.setDate(now.getDate() - 3);
-        break;
-      case 'week':
-        cutoffDate.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        cutoffDate.setMonth(now.getMonth() - 1);
-        break;
-      default:
-        // No date filter
-        break;
+    // Get all ISO posts
+    const isoPosts = await getISOPosts();
+    let allIsoPosts = [...isoPosts];
+    
+    // Filter by date range if specified
+    if (dateRange) {
+      const now = new Date();
+      const cutoffDate = new Date();
+      
+      switch (dateRange) {
+        case 'day':
+          cutoffDate.setDate(now.getDate() - 1);
+          break;
+        case 'week':
+          cutoffDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          cutoffDate.setMonth(now.getMonth() - 1);
+          break;
+        default:
+          // No date filter
+          break;
+      }
+      
+      allIsoPosts = allIsoPosts.filter(
+        (post: Listing) => new Date(post.date) >= cutoffDate
+      );
     }
     
-    allIsoPosts = allIsoPosts.filter(
-      post => new Date(post.date) >= cutoffDate
-    );
+    // Sort by date (newest first)
+    allIsoPosts.sort((a: Listing, b: Listing) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // Get total count for pagination
+    const totalPosts = allIsoPosts.length;
+    
+    // Paginate results
+    const paginatedPosts = allIsoPosts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    
+    return {
+      props: {
+        isoPosts: paginatedPosts,
+        totalPosts,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching ISO posts:', error);
+    return {
+      props: {
+        isoPosts: [],
+        totalPosts: 0,
+      },
+    };
   }
-  
-  // Sort by date (newest first)
-  allIsoPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  
-  // Get total count for pagination
-  const totalPosts = allIsoPosts.length;
-  
-  // Paginate results
-  const paginatedPosts = allIsoPosts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  
-  return {
-    props: {
-      isoPosts: paginatedPosts,
-      totalPosts,
-    },
-  };
 } 

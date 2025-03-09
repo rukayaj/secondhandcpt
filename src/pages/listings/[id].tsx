@@ -3,8 +3,9 @@ import { GetStaticPaths, GetStaticProps } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
-import { getAllListings, getListingById, Listing, getImageUrl } from '@/utils/parser';
+import { getAllListings, getListingById, Listing } from '@/utils/listingUtils';
 import { formatDate, getConditionColor } from '@/utils/helpers';
+import { getFormattedImageUrl } from '@/utils/imageUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -54,16 +55,45 @@ interface ListingDetailProps {
 export default function ListingDetail({ listing, relatedListings }: ListingDetailProps) {
   const [mainImageError, setMainImageError] = React.useState(false);
   const [additionalImageErrors, setAdditionalImageErrors] = React.useState<Record<number, boolean>>({});
+  const [activeImageIndex, setActiveImageIndex] = React.useState(0);
+  
+  // Determine the category based on text content
+  const determineCategory = (): string => {
+    const text = listing.text.toLowerCase();
+    if (text.includes('clothing') || text.includes('shirt') || text.includes('pants') || text.includes('dress')) return 'Clothing';
+    if (text.includes('toy') || text.includes('game') || text.includes('play')) return 'Toys';
+    if (text.includes('furniture') || text.includes('chair') || text.includes('table')) return 'Furniture';
+    if (text.includes('shoe') || text.includes('boot') || text.includes('footwear')) return 'Footwear';
+    if (text.includes('stroller') || text.includes('car seat') || text.includes('carrier')) return 'Gear';
+    if (text.includes('bottle') || text.includes('feeding') || text.includes('food')) return 'Feeding';
+    if (text.includes('hat') || text.includes('accessory') || text.includes('accessorie')) return 'Accessories';
+    if (text.includes('swim') || text.includes('pool')) return 'Swimming';
+    if (text.includes('bed') || text.includes('sheet') || text.includes('blanket')) return 'Bedding';
+    if (text.includes('diaper') || text.includes('nappy')) return 'Diapers';
+    if (text.includes('book') || text.includes('read')) return 'Books';
+    return 'Other';
+  };
+
+  const category = determineCategory();
+
+  // Generate a display title from the text
+  const displayTitle = listing.text
+    .split('\n')
+    .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+    .join(' ')
+    .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
 
   if (!listing) {
     return (
-      <Layout title="Listing Not Found - Nifty Thrifty">
-        <div className="container py-12 text-center">
-          <h1 className="text-3xl font-bold mb-4">Listing Not Found</h1>
-          <p className="mb-6">The listing you're looking for doesn't exist or has been removed.</p>
-          <Link href="/listings" className="btn-primary">
-            Browse All Listings
-          </Link>
+      <Layout title="Listing Not Found">
+        <div className="container py-8">
+          <div className="bg-white p-8 rounded-lg shadow-md">
+            <h1 className="text-2xl font-bold mb-4">Listing Not Found</h1>
+            <p>The listing you're looking for doesn't exist or has been removed.</p>
+            <Link href="/listings" className="mt-4 inline-block text-primary-600 hover:underline">
+              Browse all listings
+            </Link>
+          </div>
         </div>
       </Layout>
     );
@@ -71,25 +101,11 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 
   const formattedDate = formatDate(listing.date);
   
-  // Generate a clean title from the text if one isn't provided or if it's an image filename
-  const displayTitle = (listing.title && !listing.title.startsWith('IMG-')) 
-    ? listing.title 
-    : ((listing.text.split('\n')
-        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-        .join(' ')
-        .substring(0, 60)) + (listing.text.length > 60 ? '...' : '')) 
-    || ((listing.category || '') + (listing.size ? ` (${listing.size})` : '')) 
-    || 'Listing';
-
-  // Get the correct image path for a listing image
-  const getImageSrc = (imagePath: string, listingId: string) => {
-    if (imagePath.startsWith('/')) {
-      // If the path already starts with /, it's already a full path
-      return imagePath;
+  const getImageSrc = (imagePath: string) => {
+    if (imagePath) {
+      return getFormattedImageUrl(imagePath);
     }
-    
-    // Otherwise, use the getImageUrl function
-    return getImageUrl(listingId, imagePath);
+    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
   };
 
   const handleAdditionalImageError = (index: number) => {
@@ -99,155 +115,144 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     }));
   };
 
+  // Generate related item titles
+  const getRelatedItemTitle = (item: Listing): string => {
+    return item.text
+      .split('\n')
+      .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+      .join(' ')
+      .substring(0, 60) + (item.text.length > 60 ? '...' : '');
+  };
+
   return (
-    <Layout 
-      title={`${displayTitle} - Nifty Thrifty`}
-      description={`${displayTitle} - ${listing.price ? `R${listing.price}` : 'Price not specified'} - ${listing.location || 'Location not specified'}`}
-    >
+    <Layout title={`${displayTitle} - Nifty Thrifty`}>
       <div className="container py-8">
-        <div className="mb-6">
-          <Link href="/listings" className="text-primary-600 hover:text-primary-700 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-            </svg>
-            Back to Listings
+        <div className="mb-4">
+          <Link href="/listings" className="text-primary-600 hover:underline flex items-center">
+            <i className="fa-solid fa-arrow-left mr-2"></i>
+            Back to listings
           </Link>
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left column - Images */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              {listing.images && listing.images.length > 0 && !mainImageError ? (
-                <div className="relative h-96 w-full">
-                  <Image 
-                    src={getImageSrc(listing.images[0], listing.id)} 
-                    alt={listing.title || 'Listing image'}
-                    fill
-                    className="object-contain"
-                    onError={() => setMainImageError(true)}
-                  />
-                </div>
-              ) : (
-                <div className="h-96 bg-secondary-100 flex items-center justify-center">
-                  <div className="text-center">
-                    <i className={`${getCategoryIcon(listing.category || 'Other')} text-6xl mb-4`} style={{ color: getCategoryColor(listing.category || 'Other') }}></i>
-                    <p className="text-secondary-400">No image available</p>
+        
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-6">
+            {/* Image Gallery */}
+            <div className="lg:col-span-2">
+              <div className="mb-4">
+                {listing.images && listing.images.length > 0 && !mainImageError ? (
+                  <div className="relative h-96 w-full">
+                    <Image 
+                      src={getImageSrc(listing.images[0])} 
+                      alt={displayTitle}
+                      fill
+                      className="object-contain"
+                      onError={() => setMainImageError(true)}
+                    />
                   </div>
+                ) : (
+                  <div className="h-96 bg-secondary-100 flex items-center justify-center">
+                    <div className="text-center">
+                      <i className={`${getCategoryIcon(category)} text-6xl mb-4`} style={{ color: getCategoryColor(category) }}></i>
+                      <p className="text-secondary-400">No image available</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Additional Images */}
+              {listing.images && listing.images.length > 1 && (
+                <div className="grid grid-cols-5 gap-2">
+                  {listing.images.slice(1).map((image, index) => (
+                    !additionalImageErrors[index] && (
+                      <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
+                        <Image 
+                          src={getImageSrc(image)} 
+                          alt={`${displayTitle} - image ${index + 2}`}
+                          fill
+                          className="object-cover"
+                          onError={() => handleAdditionalImageError(index)}
+                        />
+                      </div>
+                    )
+                  ))}
                 </div>
               )}
             </div>
-
-            {/* Additional images */}
-            {listing.images && listing.images.length > 1 && (
-              <div className="mt-4 grid grid-cols-4 gap-2">
-                {listing.images.slice(1).map((image, index) => (
-                  !additionalImageErrors[index] && (
-                    <div key={index} className="relative h-24 bg-white rounded-md overflow-hidden shadow-sm">
-                      <Image 
-                        src={getImageSrc(image, listing.id)} 
-                        alt={`${listing.title} - image ${index + 2}`}
-                        fill
-                        className="object-cover"
-                        onError={() => handleAdditionalImageError(index)}
-                      />
-                    </div>
-                  )
-                ))}
+            
+            {/* Listing Details */}
+            <div>
+              <h1 className="text-2xl font-bold mb-4">{displayTitle}</h1>
+              
+              {listing.price && (
+                <div className="text-2xl font-bold text-primary-600 mb-4">
+                  R{listing.price}
+                </div>
+              )}
+              
+              <div className="space-y-4 mb-6">
+                <div className="flex items-center">
+                  <i className={`${getCategoryIcon(category)} mr-2`} style={{ color: getCategoryColor(category) }}></i>
+                  <span>{category}</span>
+                </div>
+                
+                {listing.collectionAreas && listing.collectionAreas.length > 0 && (
+                  <div className="flex items-center">
+                    <i className="fa-solid fa-location-dot mr-2"></i>
+                    <span>{listing.collectionAreas.join(', ')}</span>
+                  </div>
+                )}
+                
+                <div className="flex items-center">
+                  <i className="fa-solid fa-calendar mr-2"></i>
+                  <span>{formattedDate}</span>
+                </div>
+                
+                {listing.condition && (
+                  <div className="flex items-center">
+                    <i className="fa-solid fa-tag mr-2"></i>
+                    <span>Condition: <span className="font-medium">{listing.condition}</span></span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Right column - Details */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h1 className="text-2xl font-bold mb-2">{displayTitle}</h1>
-              <p className="text-3xl font-bold text-primary-600 mb-4">
-                {listing.price && `R${listing.price}`}
-              </p>
               
               <div className="mb-6">
-                {listing.isISO && (
-                  <span className="inline-block text-xs font-semibold mr-2 px-2.5 py-0.5 rounded shadow" style={{ backgroundColor: '#3b82f6', color: 'white' }}>
-                    ISO
-                  </span>
-                )}
-                {listing.condition && (
-                  <span 
-                    className="inline-block text-xs font-semibold px-2.5 py-0.5 rounded shadow"
-                    style={getConditionColor(listing.condition)}
-                  >
-                    {listing.condition}
-                  </span>
-                )}
-              </div>
-
-              <div className="space-y-4 mb-6">
-                {listing.category && (
-                  <div className="flex">
-                    <span className="text-secondary-500 w-24">Category:</span>
-                    <span className="font-medium">{listing.category}</span>
-                  </div>
-                )}
-                
-                {listing.size && (
-                  <div className="flex">
-                    <span className="text-secondary-500 w-24">Size:</span>
-                    <span className="font-medium">{listing.size}</span>
-                  </div>
-                )}
-                
-                {listing.location && (
-                  <div className="flex">
-                    <span className="text-secondary-500 w-24">Location:</span>
-                    <span className="font-medium">{listing.location}</span>
-                  </div>
-                )}
-                
-                <div className="flex">
-                  <span className="text-secondary-500 w-24">Posted:</span>
-                  <span className="font-medium">{formattedDate}</span>
+                <h2 className="text-lg font-semibold mb-2">Description</h2>
+                <div className="bg-secondary-50 p-4 rounded-md whitespace-pre-line">
+                  {listing.text}
                 </div>
               </div>
-
-              <div className="border-t border-secondary-200 pt-4 mb-6">
-                <h2 className="font-semibold mb-2">Description</h2>
-                <p className="text-secondary-700 whitespace-pre-line">{listing.text}</p>
-              </div>
-
+              
               <div className="space-y-3">
                 <a 
-                  href={`https://wa.me/?text=I'm interested in your listing: ${listing.title}`} 
+                  href={`https://wa.me/?text=I'm interested in your listing: ${displayTitle}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="btn-primary w-full flex justify-center items-center"
+                  className="btn btn-primary w-full flex justify-center items-center"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-                    <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-                  </svg>
+                  <i className="fab fa-whatsapp mr-2"></i>
                   Contact Seller
                 </a>
+                
+                <Link 
+                  href={`/listings?category=${encodeURIComponent(category)}`}
+                  className="btn btn-secondary w-full flex justify-center items-center"
+                >
+                  <i className="fa-solid fa-tag mr-2"></i>
+                  More {category} Items
+                </Link>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Related listings */}
+        
+        {/* Related Listings */}
         {relatedListings.length > 0 && (
           <div className="mt-12">
-            <h2 className="text-2xl font-bold mb-6">Similar Items</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <h2 className="text-2xl font-bold mb-6">Related Items</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {relatedListings.map((item) => {
-                // Generate a clean title for related items
-                const relatedItemTitle = (item.title && !item.title.startsWith('IMG-'))
-                  ? item.title
-                  : item.text.split('\n')
-                      .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-                      .join(' ')
-                      .substring(0, 60) + (item.text.length > 60 ? '...' : '')
-                  || (item.category || '') + (item.size ? ` (${item.size})` : '')
-                  || 'Listing';
+                const relatedItemTitle = getRelatedItemTitle(item);
+                const relatedItemCategory = determineCategory();
                 
                 return (
                   <Link 
@@ -255,33 +260,32 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                     href={`/listings/${item.id}`}
                     className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
                   >
-                    <div className="relative h-48 w-full bg-secondary-100">
+                    <div className="relative pt-[75%]">
                       {item.images && item.images.length > 0 ? (
                         <Image 
-                          src={getImageSrc(item.images[0], item.id)} 
+                          src={getImageSrc(item.images[0])} 
                           alt={relatedItemTitle}
                           fill
                           className="object-cover"
-                          onError={(e) => {
-                            // Replace with placeholder when image fails to load
-                            const target = e.target as HTMLImageElement;
-                            target.src = `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(item.category || 'No Image')}`;
-                            target.style.objectFit = 'contain';
-                            // Mark as unoptimized to avoid Next.js image optimization
-                            target.setAttribute('data-unoptimized', 'true');
-                          }}
                         />
                       ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <p className="text-secondary-400">No image</p>
+                        <div className="absolute inset-0 flex items-center justify-center bg-secondary-100">
+                          <i 
+                            className={`${getCategoryIcon(relatedItemCategory)} text-4xl`} 
+                            style={{ color: getCategoryColor(relatedItemCategory) }}
+                          ></i>
+                        </div>
+                      )}
+                      
+                      {item.price && (
+                        <div className="absolute bottom-2 right-2 bg-primary-600 text-white px-2 py-1 rounded text-sm font-bold">
+                          R{item.price}
                         </div>
                       )}
                     </div>
+                    
                     <div className="p-4">
-                      <h3 className="font-semibold text-lg mb-1 truncate">
-                        {relatedItemTitle}
-                      </h3>
-                      <p className="text-primary-600 font-bold">{item.price ? `R${item.price}` : ''}</p>
+                      <h3 className="font-semibold line-clamp-2">{relatedItemTitle}</h3>
                     </div>
                   </Link>
                 );
@@ -295,45 +299,73 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 }
 
 export const getStaticPaths: GetStaticPaths = async () => {
-  const listings = await getAllListings();
-  
-  const paths = listings.map((listing) => ({
-    params: { id: listing.id },
-  }));
-
-  return {
-    paths,
-    fallback: 'blocking',
-  };
+  try {
+    const listings = await getAllListings();
+    
+    const paths = listings.map((listing) => ({
+      params: { id: listing.id },
+    }));
+    
+    return {
+      paths,
+      fallback: 'blocking',
+    };
+  } catch (error) {
+    console.error('Error generating static paths:', error);
+    return {
+      paths: [],
+      fallback: 'blocking',
+    };
+  }
 };
 
 export const getStaticProps: GetStaticProps = async ({ params }) => {
-  const id = params?.id as string;
-  const listing = await getListingById(id);
-  
-  if (!listing) {
+  try {
+    const id = params?.id as string;
+    const listing = await getListingById(id);
+    
+    if (!listing) {
+      return {
+        notFound: true,
+      };
+    }
+    
+    // Get related listings (same category or similar price)
+    const allListings = await getAllListings();
+    
+    // Determine the category of the current listing
+    const text = listing.text.toLowerCase();
+    let category = 'Other';
+    
+    if (text.includes('clothing')) category = 'Clothing';
+    else if (text.includes('toy')) category = 'Toys';
+    else if (text.includes('furniture')) category = 'Furniture';
+    // ... and so on for other categories
+    
+    // Find related listings with the same category or similar price
+    const relatedListings = allListings
+      .filter(item => 
+        item.id !== listing.id && 
+        (
+          (item.text.toLowerCase().includes(category.toLowerCase())) ||
+          (listing.price && item.price && 
+           item.price >= listing.price * 0.7 && 
+           item.price <= listing.price * 1.3)
+        )
+      )
+      .slice(0, 6);
+    
+    return {
+      props: {
+        listing,
+        relatedListings,
+      },
+      revalidate: 3600, // Revalidate every hour
+    };
+  } catch (error) {
+    console.error('Error fetching listing details:', error);
     return {
       notFound: true,
     };
   }
-  
-  // Get related listings (same category, excluding current listing)
-  const allListings = await getAllListings();
-  const relatedListings = allListings
-    .filter(
-      (item) => 
-        item.id !== id && 
-        item.category === listing.category && 
-        !item.isISO
-    )
-    .sort(() => Math.random() - 0.5) // Shuffle
-    .slice(0, 4); // Take 4 random related listings
-  
-  return {
-    props: {
-      listing,
-      relatedListings,
-    },
-    revalidate: 3600, // Revalidate every hour
-  };
 }; 

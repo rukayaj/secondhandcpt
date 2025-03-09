@@ -2,7 +2,8 @@ import React from 'react';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
-import { getAllListings, getCategoriesWithCounts, getISOPosts, Listing } from '@/utils/parser';
+import { getAllListings, getISOPosts, Listing } from '@/utils/listingUtils';
+import { getCategoriesWithCounts } from '@/utils/filterUtils';
 import { GetStaticProps } from 'next';
 
 // Helper function to get the appropriate FontAwesome icon for each category

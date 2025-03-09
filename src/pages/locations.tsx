@@ -92,21 +92,31 @@ export default function LocationsPage({ locations }: LocationsPageProps) {
 }
 
 export async function getStaticProps() {
-  // Get locations with counts directly from the utility function
-  const locations = getLocationsWithCounts();
-  
-  // Sort by count (highest first), then alphabetically
-  locations.sort((a, b) => {
-    if (b.count !== a.count) {
-      return b.count - a.count;
-    }
-    return a.name.localeCompare(b.name);
-  });
-  
-  return {
-    props: {
-      locations,
-    },
-    revalidate: 3600, // Revalidate every hour
-  };
+  try {
+    // Get locations with counts directly from the utility function
+    const locations = await getLocationsWithCounts();
+    
+    // Sort by count (highest first), then alphabetically
+    locations.sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    
+    return {
+      props: {
+        locations,
+      },
+      revalidate: 3600, // Revalidate every hour
+    };
+  } catch (error) {
+    console.error('Error fetching locations:', error);
+    return {
+      props: {
+        locations: [],
+      },
+      revalidate: 3600,
+    };
+  }
 } 

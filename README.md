@@ -1,6 +1,16 @@
-# Second-Hand Cape Town Dataset
+# Second-Hand Cape Town
 
-This dataset contains 601 listings from WhatsApp groups for second-hand baby items in Cape Town.
+A web application for browsing second-hand baby items in Cape Town, powered by Supabase.
+
+## Overview
+
+This application displays listings from WhatsApp groups for second-hand baby items in Cape Town. It uses Supabase for both the database and image storage.
+
+## Supabase Setup
+
+This application runs exclusively off Supabase for both database and storage. No source data is included in the repository.
+
+For detailed setup instructions, see [SUPABASE_SETUP.md](SUPABASE_SETUP.md).
 
 ## Dataset Statistics
 
@@ -42,18 +52,7 @@ This dataset contains 601 listings from WhatsApp groups for second-hand baby ite
 - Maximum price: R8000
 - Free items: 2
 
-## Data Cleaning Process
-
-The dataset was cleaned through a multi-stage process:
-1. Initial extraction from WhatsApp group exports
-2. Automated parsing of listings to identify prices, conditions, and collection areas
-3. Manual review of listings without prices to:
-   - Add missing prices where available
-   - Flag "In Search Of" (ISO) messages
-   - Remove irrelevant messages (greetings, status updates, etc.)
-4. Final cleanup and standardization
-
-## Dataset Structure
+## Data Structure
 
 Each listing contains the following fields:
 - `whatsappGroup`: The WhatsApp group the listing was posted in
@@ -66,6 +65,16 @@ Each listing contains the following fields:
 - `collectionAreas`: Array of collection areas mentioned
 - `iso`: Boolean flag indicating if this is an "In Search Of" message
 
+## Development
+
+To run the application locally:
+
+1. Clone the repository
+2. Set up Supabase as described in [SUPABASE_SETUP.md](SUPABASE_SETUP.md)
+3. Install dependencies: `npm install`
+4. Run the development server: `npm run dev`
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
+
 ## License
 
-This dataset is provided for research and educational purposes only.
+This application is provided for research and educational purposes only.

@@ -40,4 +40,21 @@ next-env.d.ts
 /src/utils/sampleData.ts.bak
 /src/utils/sampleData.deduplicated.ts
 /whatsapp-exports/
-*.original.ts 
+/src/data/
+*.original.ts
+
+# Source data and images
+/src/data/
+/public/images/nifty-thrifty-0-1-years/
+/public/images/nifty-thrifty-1-3-years/
+/public/images/listings/
+/src/listings.json
+/scripts/temp-listings.js
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!jest.config.js
+!tailwind.config.js
+!postcss.config.js
+!next.config.js 

@@ -1,9 +1,10 @@
 import React from 'react';
 import Link from 'next/link';
+import { Listing } from '@/utils/listingUtils';
 import Image from 'next/image';
-import { Listing } from '@/utils/parser';
+import { formatDistanceToNow } from 'date-fns';
 import { formatDate, getConditionColor } from '@/utils/helpers';
-import { getCorrectImagePath } from '@/utils/parser';
+import { getFormattedImageUrl } from '@/utils/imageUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -53,24 +54,38 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const formattedDate = formatDate(listing.date);
   const [imageError, setImageError] = React.useState(false);
 
-  // Generate a display title that doesn't include image filenames
-  const displayTitle = listing.title && !listing.title.startsWith('IMG-')
-    ? listing.title 
-    : listing.text.split('\n')
-        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-        .join(' ')
-        .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
+  // Generate a display title from the text
+  const displayTitle = listing.text
+    .split('\n')
+    .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+    .join(' ')
+    .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
 
-  // Use the correct image path based on the listing ID
+  // Determine the category based on text content
+  const determineCategory = (): string => {
+    const text = listing.text.toLowerCase();
+    if (text.includes('clothing') || text.includes('shirt') || text.includes('pants') || text.includes('dress')) return 'Clothing';
+    if (text.includes('toy') || text.includes('game') || text.includes('play')) return 'Toys';
+    if (text.includes('furniture') || text.includes('chair') || text.includes('table')) return 'Furniture';
+    if (text.includes('shoe') || text.includes('boot') || text.includes('footwear')) return 'Footwear';
+    if (text.includes('stroller') || text.includes('car seat') || text.includes('carrier')) return 'Gear';
+    if (text.includes('bottle') || text.includes('feeding') || text.includes('food')) return 'Feeding';
+    if (text.includes('hat') || text.includes('accessory') || text.includes('accessorie')) return 'Accessories';
+    if (text.includes('swim') || text.includes('pool')) return 'Swimming';
+    if (text.includes('bed') || text.includes('sheet') || text.includes('blanket')) return 'Bedding';
+    if (text.includes('diaper') || text.includes('nappy')) return 'Diapers';
+    if (text.includes('book') || text.includes('read')) return 'Books';
+    return 'Other';
+  };
+
+  const category = determineCategory();
+
+  // Use the image from the listing
   const getImageSrc = () => {
     if (listing.images && listing.images.length > 0 && !listing.isISO && !imageError) {
-      const imagePath = listing.images[0];
-      const imageName = imagePath.split('/').pop();
-      if (imageName) {
-        return getCorrectImagePath(imageName, listing.id);
-      }
+      return getFormattedImageUrl(listing.images[0]);
     }
-    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(listing.category || 'No Image')}`;
+    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
   };
 
   const imageSrc = getImageSrc();
@@ -82,8 +97,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           // For ISO posts, display the category icon instead of an image
           <div className="absolute inset-0 flex items-center justify-center bg-blue-50">
             <i 
-              className={`${getCategoryIcon(listing.category || 'Other')} text-6xl`} 
-              style={{ color: getCategoryColor(listing.category || 'Other') }}
+              className={`${getCategoryIcon(category)} text-6xl`} 
+              style={{ color: getCategoryColor(category) }}
             ></i>
           </div>
         ) : (
@@ -128,27 +143,18 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         </div>
         
         <div className="mt-auto pt-4 text-sm text-secondary-500 flex flex-col gap-1">
-          {listing.category && (
-            <div className="flex items-center">
-              <i 
-                className={`${getCategoryIcon(listing.category)} mr-1`} 
-                style={{ color: getCategoryColor(listing.category) }}
-              ></i>
-              <span>{listing.category}</span>
-            </div>
-          )}
+          <div className="flex items-center">
+            <i 
+              className={`${getCategoryIcon(category)} mr-1`} 
+              style={{ color: getCategoryColor(category) }}
+            ></i>
+            <span>{category}</span>
+          </div>
           
-          {listing.size && (
-            <div className="flex items-center">
-              <i className="fa-solid fa-ruler mr-1"></i>
-              <span>Size: {listing.size}</span>
-            </div>
-          )}
-          
-          {listing.location && (
+          {listing.collectionAreas && listing.collectionAreas.length > 0 && (
             <div className="flex items-center">
               <i className="fa-solid fa-location-dot mr-1"></i>
-              <span>{listing.location}</span>
+              <span>{listing.collectionAreas[0]}</span>
             </div>
           )}
           
