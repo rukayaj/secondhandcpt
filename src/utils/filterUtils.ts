@@ -24,7 +24,7 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
   // Filter by category
   if (filters.category) {
     filteredListings = filteredListings.filter(listing => 
-      listing.text.toLowerCase().includes(filters.category!.toLowerCase())
+      listing.category === filters.category
     );
   }
   

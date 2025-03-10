@@ -1,4 +1,3 @@
-
 -- Run this in the Supabase SQL Editor
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -14,6 +13,7 @@ CREATE TABLE IF NOT EXISTS public.listings (
   images JSONB,
   condition TEXT,
   collection_areas JSONB,
+  category TEXT DEFAULT 'Other',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

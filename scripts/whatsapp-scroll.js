@@ -20,8 +20,22 @@ const SCROLL_COUNT = 200; // Adjust based on how far back you need to go
 const SCROLL_DELAY = 500; // Delay between scrolls in ms
 const NOTIFICATION_DELAY = 3000; // Delay for notification permissions dialog
 
+// Helper function for delay (compatible with all Puppeteer versions)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function scrollWhatsAppGroups() {
   console.log('Starting WhatsApp scroller...');
+  
+  // Check for Mac Silicon architecture
+  const isArm64 = process.arch === 'arm64';
+  const isMac = process.platform === 'darwin';
+  
+  if (isMac && isArm64) {
+    console.log('\n⚠️  Performance Note for Mac Silicon (M1/M2/M3) users:');
+    console.log('   For best performance, ensure you\'re using an arm64 version of Node.js');
+    console.log('   You can check with: node -p "process.arch"');
+    console.log('   This will still work, but might be slower than optimal.\n');
+  }
   
   // Launch browser
   const browser = await puppeteer.launch({
@@ -44,7 +58,7 @@ async function scrollWhatsAppGroups() {
     });
     
     // Wait for notification permission if it appears
-    await page.waitForTimeout(NOTIFICATION_DELAY);
+    await delay(NOTIFICATION_DELAY);
     
     console.log('\n📱 Please scan the QR code to log in...');
     console.log('Waiting for WhatsApp to load your chats (this may take a minute)...\n');
@@ -54,7 +68,7 @@ async function scrollWhatsAppGroups() {
     console.log('✅ Logged in successfully!\n');
     
     // Get chat list
-    await page.waitForTimeout(2000); // Wait for chats to fully load
+    await delay(2000); // Wait for chats to fully load
     
     // List of groups to scroll (from the screenshot)
     const groups = [
@@ -82,7 +96,7 @@ async function scrollWhatsAppGroups() {
         await page.type('div[contenteditable="true"][data-tab="3"]', group);
         
         // Wait for search results
-        await page.waitForTimeout(2000);
+        await delay(2000);
         
         // Click on the group chat from search results
         const chatElements = await page.$$('span[title]');
@@ -104,12 +118,12 @@ async function scrollWhatsAppGroups() {
           console.log(`   ⚠️ Couldn't find group: ${group}. Skipping...`);
           // Clear the search
           await page.click('button[aria-label="Back"]');
-          await page.waitForTimeout(1000);
+          await delay(1000);
           continue;
         }
         
         // Wait for the chat to load
-        await page.waitForTimeout(2000);
+        await delay(2000);
         
         // Scroll to load message history
         console.log(`   Starting to scroll (${SCROLL_COUNT} scrolls)...`);
@@ -135,7 +149,7 @@ async function scrollWhatsAppGroups() {
             console.log(`   📜 Scroll progress: ${Math.round((i + 1) / SCROLL_COUNT * 100)}%`);
           }
           
-          await page.waitForTimeout(SCROLL_DELAY);
+          await delay(SCROLL_DELAY);
         }
         
         console.log(`   ✅ Finished scrolling through ${group}\n`);

@@ -14,6 +14,7 @@ export interface Listing {
   dateAdded: string;
   checkedOn: string | null;
   isISO: boolean; // In Search Of
+  category: string; // Add category field
 }
 
 // Convert a Supabase record to the application's Listing format
@@ -30,7 +31,8 @@ export function convertRecordToListing(record: ListingRecord): Listing {
     collectionAreas: record.collection_areas || [],
     dateAdded: record.date_added || '',
     checkedOn: record.checked_on || null,
-    isISO: record.text.toLowerCase().includes('iso') || record.text.toLowerCase().includes('in search of')
+    isISO: record.text.toLowerCase().includes('iso') || record.text.toLowerCase().includes('in search of'),
+    category: record.category || 'Other' // Use the database category or default to 'Other'
   };
 }
 
@@ -49,12 +51,12 @@ export async function getAllListings(): Promise<Listing[]> {
   return (data as ListingRecord[]).map(convertRecordToListing);
 }
 
-// Get listings by category (derived from text content)
+// Get listings by category (using the category column)
 export async function getListingsByCategory(category: string): Promise<Listing[]> {
   const { data, error } = await supabase
     .from(TABLES.LISTINGS)
     .select('*')
-    .textSearch('text', category, { config: 'english' })
+    .eq('category', category) // Use the category column directly
     .order('date_added', { ascending: false });
 
   if (error) {
@@ -114,33 +116,46 @@ export async function getISOPosts(): Promise<Listing[]> {
   return (data as ListingRecord[]).map(convertRecordToListing);
 }
 
-// Get categories with counts
+// Get categories with counts (using the category column)
 export async function getCategoriesWithCounts(): Promise<{ name: string; count: number }[]> {
-  // This is a simplified approach - in a real app, you might have a separate categories table
-  // or use a more sophisticated text analysis approach
-  const listings = await getAllListings();
-  
-  const categories = [
-    'Clothing',
-    'Toys',
-    'Books',
-    'Furniture',
-    'Strollers',
-    'Car Seats',
-    'Cribs',
-    'High Chairs',
-    'Bottles',
-    'Diapers',
-    'Shoes'
-  ];
-  
-  return categories.map(category => {
-    const count = listings.filter(listing => 
-      listing.text.toLowerCase().includes(category.toLowerCase())
-    ).length;
+  try {
+    // Use SQL to get category counts directly from the database
+    const { data, error } = await supabase
+      .rpc('get_category_counts');
     
-    return { name: category, count };
-  }).sort((a, b) => b.count - a.count);
+    if (error) {
+      console.error('Error fetching category counts:', error);
+      
+      // Fallback: Query and count categories manually
+      console.log('Falling back to manual category counting...');
+      const { data: listings, error: listingsError } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('category');
+      
+      if (listingsError) {
+        console.error('Error in fallback category counting:', listingsError);
+        return [];
+      }
+      
+      // Count occurrences of each category
+      const categoryCounts: Record<string, number> = {};
+      for (const listing of listings) {
+        const category = listing.category || 'Other';
+        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+      }
+      
+      // Convert to required format and sort
+      return Object.entries(categoryCounts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count);
+    }
+    
+    // If RPC call succeeded, return its results
+    return data;
+  } catch (error) {
+    console.error('Unexpected error in getCategoriesWithCounts:', error);
+    return [];
+  }
 }
 
 // Get a listing by ID

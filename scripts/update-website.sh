@@ -73,47 +73,108 @@ if [ "$SCROLL" = true ] || [ "$SCROLL_ONLY" = true ]; then
   fi
 fi
 
-# Check if the data directories exist
-if [ ! -d "src/data/nifty-thrifty-0-1-years" ] || [ ! -d "src/data/nifty-thrifty-1-3-years" ]; then
-  echo "Error: Data directories not found."
-  echo "Please create the following directories:"
-  echo "  - src/data/nifty-thrifty-0-1-years"
-  echo "  - src/data/nifty-thrifty-1-3-years"
-  exit 1
+# Check if the data directories exist and create them if needed
+echo "Checking data directories..."
+directories=(
+  "src/data"
+  "src/data/nifty-thrifty-0-1-years"
+  "src/data/nifty-thrifty-1-3-years"
+  "src/data/nifty-thrifty-modern-cloth-nappies"
+  "src/data/nifty-thrifty-bumps-and-boobs"
+  "src/data/nifty-thrifty-kids-3-8-years"
+)
+
+for dir in "${directories[@]}"; do
+  if [ ! -d "$dir" ]; then
+    echo "Creating directory: $dir"
+    mkdir -p "$dir"
+  fi
+done
+
+# Function to check for WhatsApp export files with various possible names
+check_export_file() {
+  local dir="$1"
+  local group_name="$2"
+  local suffix="$3"
+  
+  # Check for different possible file name patterns
+  if [ -f "${dir}/WhatsApp Chat with ${group_name}${suffix}.txt" ]; then
+    return 0
+  elif [ -f "${dir}/WhatsApp Chat with ${group_name} ${suffix}.txt" ]; then
+    return 0
+  elif [ -f "${dir}/_chat.txt" ]; then
+    return 0
+  fi
+  
+  return 1
+}
+
+# Check if at least one export file exists for each group
+has_files=false
+
+# Check for 0-1 years (1) files
+if check_export_file "src/data/nifty-thrifty-0-1-years" "Nifty Thrifty 0-1 year" " (1)" || \
+   check_export_file "src/data/nifty-thrifty-0-1-years" "Nifty Thrifty 0-1 year" ""; then
+  has_files=true
+else
+  echo "Warning: No export file found for Nifty Thrifty 0-1 year (1) group."
+  echo "Expected files like: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (1).txt"
 fi
 
-# Check if the WhatsApp export files exist
-if [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (1).txt" ] && [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year.txt" ]; then
-  echo "Warning: WhatsApp export file for 0-1 year group (1) not found."
-  echo "Expected location: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (1).txt"
-  echo ""
-  read -p "Continue anyway? (y/n): " continue_without_file
-  if [ "$continue_without_file" != "y" ]; then
-    exit 1
-  fi
+# Check for 0-1 years (2) files
+if check_export_file "src/data/nifty-thrifty-0-1-years" "Nifty Thrifty 0-1 year" " (2)"; then
+  has_files=true
+else
+  echo "Warning: No export file found for Nifty Thrifty 0-1 year (2) group."
+  echo "Expected: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (2).txt"
 fi
 
-if [ ! -f "src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (2).txt" ]; then
-  echo "Warning: WhatsApp export file for 0-1 year group (2) not found."
-  echo "Expected location: src/data/nifty-thrifty-0-1-years/WhatsApp Chat with Nifty Thrifty 0-1 year (2).txt"
-  echo ""
-  read -p "Continue anyway? (y/n): " continue_without_file
-  if [ "$continue_without_file" != "y" ]; then
-    exit 1
-  fi
+# Check for 1-3 years files
+if check_export_file "src/data/nifty-thrifty-1-3-years" "Nifty Thrifty 1-3 years" ""; then
+  has_files=true
+else
+  echo "Warning: No export file found for Nifty Thrifty 1-3 years group."
+  echo "Expected: src/data/nifty-thrifty-1-3-years/WhatsApp Chat with Nifty Thrifty 1-3 years.txt"
 fi
 
-if [ ! -f "src/data/nifty-thrifty-1-3-years/WhatsApp Chat with Nifty Thrifty 1-3 years.txt" ]; then
-  echo "Warning: WhatsApp export file for 1-3 years group not found."
-  echo "Expected location: src/data/nifty-thrifty-1-3-years/WhatsApp Chat with Nifty Thrifty 1-3 years.txt"
+# Check for cloth nappies files
+if check_export_file "src/data/nifty-thrifty-modern-cloth-nappies" "Nifty Thrifty Modern Cloth Nappies" ""; then
+  has_files=true
+else
+  echo "Warning: No export file found for Nifty Thrifty Modern Cloth Nappies group."
+  echo "Expected: src/data/nifty-thrifty-modern-cloth-nappies/WhatsApp Chat with Nifty Thrifty Modern Cloth Nappies.txt"
+fi
+
+# Check for bumps & boobs files
+if check_export_file "src/data/nifty-thrifty-bumps-and-boobs" "Nifty Thrifty Bumps & Boobs" ""; then
+  has_files=true
+else
+  echo "Warning: No export file found for Nifty Thrifty Bumps & Boobs group."
+  echo "Expected: src/data/nifty-thrifty-bumps-and-boobs/WhatsApp Chat with Nifty Thrifty Bumps & Boobs.txt"
+fi
+
+# Check for kids 3-8 years files
+if check_export_file "src/data/nifty-thrifty-kids-3-8-years" "Nifty Thrifty Kids (3-8 years) 2" ""; then
+  has_files=true
+else
+  echo "Warning: No export file found for Nifty Thrifty Kids (3-8 years) 2 group."
+  echo "Expected: src/data/nifty-thrifty-kids-3-8-years/WhatsApp Chat with Nifty Thrifty Kids (3-8 years) 2.txt"
+fi
+
+# If no files were found, give the user a choice to continue
+if [ "$has_files" = false ]; then
   echo ""
-  read -p "Continue anyway? (y/n): " continue_without_file
-  if [ "$continue_without_file" != "y" ]; then
+  echo "No WhatsApp export files found in any of the expected locations."
+  read -p "Do you want to continue anyway? (y/n): " continue_without_files
+  if [ "$continue_without_files" != "y" ]; then
     exit 1
   fi
+else
+  echo "Found at least one WhatsApp export file. Continuing..."
 fi
 
 # Step 1: Run the import script
+echo ""
 echo "Step 1: Importing listings from WhatsApp exports..."
 npm run import-whatsapp-full
 

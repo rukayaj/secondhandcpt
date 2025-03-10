@@ -30,9 +30,9 @@ async function addListing(listing) {
       price: listing.price,
       condition: listing.condition,
       collection_areas: listing.collectionAreas || [],
-      category: listing.category || 'Other',
       date_added: new Date().toISOString(),
-      is_iso: listing.isISO || false
+      is_iso: listing.isISO || false,
+      category: listing.category || 'Other'
     };
     
     // Add the listing to the database
@@ -78,9 +78,9 @@ async function addListings(listings) {
       price: listing.price,
       condition: listing.condition,
       collection_areas: listing.collectionAreas || [],
-      category: listing.category || 'Other',
       date_added: new Date().toISOString(),
-      is_iso: listing.isISO || false
+      is_iso: listing.isISO || false,
+      category: listing.category || 'Other'
     }));
     
     // Add the listings to the database in batches

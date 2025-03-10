@@ -6,11 +6,150 @@ A web application for browsing second-hand baby items in Cape Town, powered by S
 
 This application displays listings from WhatsApp groups for second-hand baby items in Cape Town. It uses Supabase for both the database and image storage.
 
+## Features
+
+### Categories
+The application automatically categorizes listings into the following categories:
+- Clothing
+- Toys
+- Furniture
+- Footwear
+- Gear
+- Feeding
+- Accessories
+- Swimming
+- Bedding
+- Diapering
+- Books
+- Health
+- Bath
+- Other
+
+Categories are determined using natural language processing of the listing text, looking for category-specific keywords and patterns.
+
+### Search and Filtering
+The website provides powerful search and filtering capabilities:
+- **Search by keyword**: Find listings containing specific terms
+- **Filter by category**: Browse listings in specific categories
+- **Filter by location**: Find items available in specific areas of Cape Town
+- **Filter by price range**: Set minimum and maximum price filters
+- **Filter by date range**: Filter listings by how recently they were posted
+- **Filter by condition**: Filter by item condition (New, Like New, Excellent, etc.)
+
+These filtering options can be combined to narrow down results and find exactly what you're looking for.
+
 ## Periodic Import Workflow
 
-This application is designed to be updated periodically (approximately every 3 days) with new listings from WhatsApp groups. The workflow is as follows:
+This application is designed to be updated periodically (approximately every 3 days) with new listings from WhatsApp groups. There are two methods for importing listings:
 
-### Step 1: Scroll Through WhatsApp Groups
+1. **WAHA API Integration (Recommended)**: A Docker-based WhatsApp API that provides a more reliable way to fetch messages
+2. **Puppeteer-based Import**: The original method that uses browser automation to fetch messages
+
+### Method 1: WAHA WhatsApp API Integration (Recommended)
+
+This is the recommended approach that uses the [WhatsApp API - WAHA](https://github.com/devlikeapro/waha) project to provide a more reliable way to access WhatsApp data.
+
+#### Step 1: Set Up WAHA API
+
+First, make sure Docker is installed and running on your machine, then start the WAHA API container:
+
+```bash
+# Run WAHA in Docker on port 3001
+docker run -d -p 3001:3000 devlikeapro/waha
+```
+
+After starting the container, visit http://localhost:3001 in your browser to check if WAHA is running.
+
+#### Step 2: Configure WhatsApp Group IDs
+
+The free version of WAHA doesn't support automatic discovery of chat IDs. You need to manually configure the chat IDs in the `scripts/waha-import.js` file:
+
+```javascript
+const GROUP_MAPPING = {
+  'Nifty Thrifty Modern Cloth Nappies': '120363045386754642@g.us',  // Replace with actual chat ID
+  'Nifty Thrifty 0-1 year (2)': '120363044516064722@g.us',          // Replace with actual chat ID
+  // ... other groups
+};
+```
+
+To find the chat IDs:
+1. Open WhatsApp Web in your browser
+2. Open the Developer Tools (F12 or right-click > Inspect)
+3. Go to the Network tab
+4. Filter for "messages" or "chats"
+5. Look for requests that contain the chat ID in the URL or response
+
+#### Step 3: Run the WAHA Update Script
+
+For the most seamless experience, run the all-in-one WAHA update script:
+
+```bash
+# Standard WAHA update 
+npm run update-waha
+
+# To restart WAHA container automatically before updating
+npm run update-waha-restart
+
+# To deploy to Vercel after updating
+npm run update-waha-deploy
+
+# To restart WAHA and deploy in one step
+npm run update-waha-full
+```
+
+The script will:
+1. Ensure WAHA API is running
+2. Authenticate with WhatsApp (if needed)
+3. Import messages from WhatsApp groups
+4. Process and download images
+5. Check for duplicates
+6. Ask if you want to remove high-confidence duplicates
+7. Optionally deploy to Vercel
+
+> **Note:** The first time you run this, you'll need to scan a QR code to authenticate. After the first authentication, the session will persist as long as the WAHA container is running.
+
+#### Alternative: Manual WAHA Steps
+
+If you prefer to run the steps individually:
+
+```bash
+# Just restart the WAHA container
+npm run restart-waha
+
+# Import listings through WAHA
+npm run import-waha-verbose
+
+# Process images from WAHA
+npm run waha-images-upload
+
+# Check for duplicates
+npm run find-duplicates
+
+# Remove high-confidence duplicates
+npm run remove-duplicates
+```
+
+#### Troubleshooting WAHA
+
+If you encounter issues with WAHA:
+
+1. **Session Already Started Error**: If you see an error about a session already being started but not authenticated:
+   ```
+   npm run update-waha-restart
+   ```
+   This will stop the existing WAHA container and start a fresh one.
+
+2. **Authentication Issues**: If WAHA disconnects from WhatsApp, you may need to restart the container and scan the QR code again.
+
+3. **Check WAHA UI**: You can visit http://localhost:3001 to see the WAHA dashboard and check session status.
+
+4. **Free Version Limitations**: The free version of WAHA has limited API functionality. Some endpoints like `/api/chats` for automatic group discovery are only available in the Plus version.
+
+### Method 2: Original Puppeteer-based Import
+
+This is the original method that uses browser automation to fetch messages. It's less reliable but doesn't require Docker.
+
+#### Step 1: Scroll Through WhatsApp Groups
 
 First, use the automated scrolling script to ensure all messages are loaded in each WhatsApp group:
 
@@ -29,6 +168,8 @@ This will:
 4. Keep the browser open so you can export the chats
 
 > **Note:** WhatsApp Web only exports messages that have been loaded on your device. The scrolling script ensures all recent messages are loaded before exporting.
+
+> **Mac Silicon (M1/M2/M3) Users:** For best performance, ensure you're using an arm64 version of Node.js. You can check with `node -p "process.arch"`. If it says "x64" instead of "arm64", you might experience slower performance.
 
 ### Step 2: Export WhatsApp Chat History
 
@@ -56,15 +197,20 @@ After the scrolling script completes:
 For the most seamless experience, run the all-in-one update script:
 
 ```bash
+# Standard update 
 npm run update-website
+
+# Or, to do scrolling and updating in one step
+npm run update-website-full
 ```
 
-This script will:
-1. Check that all required files are in place
-2. Run the full import process
-3. Check for duplicates
-4. Ask if you want to remove high-confidence duplicates
-5. Guide you through the entire process
+The full script will:
+1. Scroll through WhatsApp groups to load messages 
+2. Prompt you to export the chats
+3. Check that all required files are in place
+4. Run the full import process
+5. Check for duplicates
+6. Ask if you want to remove high-confidence duplicates
 
 If you also want to deploy the updates to Vercel:
 
@@ -77,6 +223,9 @@ npm run update-website-deploy
 If you prefer to run the steps individually:
 
 ```bash
+# Scroll through WhatsApp groups only (no import)
+npm run update-website-scroll-only
+
 # Import listings
 npm run import-whatsapp-full
 
@@ -163,7 +312,9 @@ The application includes several scripts to help with importing and managing lis
 
 - `npm run scroll-whatsapp`: Automatically scroll through WhatsApp Web to load message history
 - `npm run update-website`: All-in-one script for the entire update process
+- `npm run update-website-full`: Complete process including scrolling, importing, and duplicate checking
 - `npm run update-website-deploy`: Update and deploy to Vercel
+- `npm run update-website-scroll-only`: Only perform scrolling step
 - `npm run import-whatsapp`: Basic import of new listings
 - `npm run import-whatsapp-verbose`: Import with detailed logging
 - `npm run import-whatsapp-full`: Complete import with image handling
@@ -188,9 +339,11 @@ To run the application locally:
 ### Common Issues
 
 1. **WhatsApp Scrolling Issues**:
-   - If the scroll script fails to find a group, try running it again
+   - If you see `TypeError: page.waitForTimeout is not a function`, make sure you have the latest Puppeteer version (`npm install puppeteer@latest`)
+   - If the scroll script fails to find a group, try running it again with a different WhatsApp layout
    - If WhatsApp Web design changes, the selectors in the script may need updating
    - Ensure you scan the QR code promptly when the browser opens
+   - For Mac Silicon (M1/M2/M3) users, consider using an arm64 version of Node.js for best performance
 
 2. **Missing Images**: If images are mentioned in listings but not found:
    - Check that the images were copied to the correct source directory

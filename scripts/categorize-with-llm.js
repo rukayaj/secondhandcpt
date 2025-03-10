@@ -7,6 +7,17 @@
  * 3. Updates the database with the enhanced categories
  * 
  * Run this script manually as needed, not on a schedule.
+ * 
+ * Usage:
+ *   node scripts/categorize-with-llm.js [options]
+ * 
+ * Options:
+ *   --service=<mock|openai>   Which LLM service to use (default: mock)
+ *   --limit=<number>          Maximum number of listings to process (default: 50)
+ *   --batch=<number>          Number of listings per batch (default: 10)
+ *   --live                    Run in live mode (update database) instead of dry run
+ *   --all                     Process all listings, not just "Other" category
+ *   --non-interactive         Run without interactive prompts, using provided options
  */
 
 require('dotenv').config({ path: '.env.local' });
@@ -135,7 +146,8 @@ const DEFAULT_OPTIONS = {
   limit: 50,
   batchSize: 10,
   service: 'MOCK', // Change to 'OPENAI' when ready to use real service
-  dryRun: true
+  dryRun: true,
+  onlyOtherCategory: true // Default to only processing "Other" category listings
 };
 
 /**
@@ -143,7 +155,7 @@ const DEFAULT_OPTIONS = {
  * @param {Object} options - Processing options
  */
 async function categorizeListingsWithLLM(options) {
-  const { limit, batchSize, service, dryRun } = {
+  const { limit, batchSize, service, dryRun, onlyOtherCategory } = {
     ...DEFAULT_OPTIONS,
     ...options
   };
@@ -153,13 +165,23 @@ async function categorizeListingsWithLLM(options) {
   console.log(`- Limit: ${limit} listings`);
   console.log(`- Batch size: ${batchSize}`);
   console.log(`- Mode: ${dryRun ? 'Dry run (no database changes)' : 'Live run (will update database)'}`);
+  console.log(`- Filter: ${onlyOtherCategory ? 'Only "Other" category listings' : 'All listings'}`);
   
   // Fetch listings that need categorization
   console.log(`\nFetching listings...`);
-  const { data: listings, error } = await supabase
-    .from('listings')
-    .select('id, text, title')
-    .limit(limit);
+  
+  // Start the query
+  let query = supabase.from('listings').select('id, text, category');
+  
+  // Filter by category if needed
+  if (onlyOtherCategory) {
+    // Filter for NULL category or "Other" category
+    query = query.or('category.is.null,category.eq.Other');
+    console.log('Filtering for listings with NULL or "Other" category only');
+  }
+  
+  // Limit the number of results
+  const { data: listings, error } = await query.limit(limit);
   
   if (error) {
     console.error('Error fetching listings:', error);
@@ -213,8 +235,9 @@ async function categorizeListingsWithLLM(options) {
         
         stats.processed++;
         
-        // Get current category from title or use keyword categorization
-        const currentCategory = listing.title || categorizeListingByKeywords(listing.text) || 'Other';
+        // Get current category from the category field or use "Other" as default
+        const currentCategory = listing.category || 'Other';
+        console.log(`  → Current category: ${currentCategory}`);
         
         // Get LLM categorization
         let result;
@@ -272,7 +295,7 @@ async function categorizeListingsWithLLM(options) {
           if (!dryRun) {
             updates.push({
               id: listing.id,
-              title: newCategory // Update the title field with the category
+              category: newCategory // Update the category field (not title)
             });
           }
         }
@@ -347,29 +370,35 @@ function promptForOptions() {
       rl.question(`\nBatch size (default: ${DEFAULT_OPTIONS.batchSize}): `, (batchSizeStr) => {
         const batchSize = parseInt(batchSizeStr) || DEFAULT_OPTIONS.batchSize;
         
-        rl.question('\nMode:\n1. Dry run (no database changes)\n2. Live run (will update database)\nChoice: ', async (modeChoice) => {
+        rl.question('\nMode:\n1. Dry run (no database changes)\n2. Live run (will update database)\nChoice: ', (modeChoice) => {
           const dryRun = modeChoice !== '2';
           
-          // Final confirmation
-          console.log('\n===== Confirmation =====');
-          console.log(`Service: ${LLM_SERVICES[service].name}`);
-          console.log(`Limit: ${limit} listings`);
-          console.log(`Batch size: ${batchSize}`);
-          console.log(`Mode: ${dryRun ? 'Dry run (no database changes)' : 'Live run (will update database)'}`);
-          
-          rl.question('\nProceed? (y/n): ', async (answer) => {
-            if (answer.toLowerCase() === 'y') {
-              await categorizeListingsWithLLM({
-                service,
-                limit,
-                batchSize,
-                dryRun
-              });
-            } else {
-              console.log('Operation cancelled');
-            }
+          rl.question('\nFilter listings by category:\n1. Only "Other" category listings (recommended)\n2. All listings\nChoice: ', (filterChoice) => {
+            const onlyOtherCategory = filterChoice !== '2';
             
-            rl.close();
+            // Final confirmation
+            console.log('\n===== Confirmation =====');
+            console.log(`Service: ${LLM_SERVICES[service].name}`);
+            console.log(`Limit: ${limit} listings`);
+            console.log(`Batch size: ${batchSize}`);
+            console.log(`Mode: ${dryRun ? 'Dry run (no database changes)' : 'Live run (will update database)'}`);
+            console.log(`Filter: ${onlyOtherCategory ? 'Only "Other" category listings' : 'All listings'}`);
+            
+            rl.question('\nProceed? (y/n): ', async (confirm) => {
+              if (confirm.toLowerCase() === 'y') {
+                await categorizeListingsWithLLM({
+                  service,
+                  limit,
+                  batchSize,
+                  dryRun,
+                  onlyOtherCategory
+                });
+              } else {
+                console.log('Operation cancelled');
+              }
+              
+              rl.close();
+            });
           });
         });
       });
@@ -377,5 +406,71 @@ function promptForOptions() {
   });
 }
 
-// Start the prompt flow
-promptForOptions(); 
+// Main function
+async function main() {
+  // Parse command-line arguments
+  const args = process.argv.slice(2);
+  
+  // Check for non-interactive mode
+  const nonInteractive = args.includes('--non-interactive');
+  
+  if (nonInteractive) {
+    // Parse options from command-line arguments
+    const options = {
+      ...DEFAULT_OPTIONS
+    };
+    
+    // Parse service
+    const serviceArg = args.find(arg => arg.startsWith('--service='));
+    if (serviceArg) {
+      const service = serviceArg.split('=')[1].toUpperCase();
+      if (service === 'OPENAI' || service === 'MOCK') {
+        options.service = service;
+      }
+    }
+    
+    // Parse limit
+    const limitArg = args.find(arg => arg.startsWith('--limit='));
+    if (limitArg) {
+      const limit = parseInt(limitArg.split('=')[1]);
+      if (!isNaN(limit) && limit > 0) {
+        options.limit = limit;
+      }
+    }
+    
+    // Parse batch size
+    const batchArg = args.find(arg => arg.startsWith('--batch='));
+    if (batchArg) {
+      const batchSize = parseInt(batchArg.split('=')[1]);
+      if (!isNaN(batchSize) && batchSize > 0) {
+        options.batchSize = batchSize;
+      }
+    }
+    
+    // Parse live mode
+    options.dryRun = !args.includes('--live');
+    
+    // Parse category filter
+    options.onlyOtherCategory = !args.includes('--all');
+    
+    // Run with non-interactive options
+    console.log('Running in non-interactive mode with options:');
+    console.log(`- Service: ${options.service}`);
+    console.log(`- Limit: ${options.limit}`);
+    console.log(`- Batch size: ${options.batchSize}`);
+    console.log(`- Mode: ${options.dryRun ? 'Dry run' : 'Live run'}`);
+    console.log(`- Filter: ${options.onlyOtherCategory ? 'Only "Other" category' : 'All listings'}`);
+    
+    await categorizeListingsWithLLM(options);
+    process.exit(0);
+  } else {
+    // Interactive mode
+    promptForOptions();
+  }
+}
+
+// Start the script
+main().catch(err => {
+  console.error('Error:', err);
+  process.exit(1);
+}); 

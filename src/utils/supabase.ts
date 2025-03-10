@@ -18,6 +18,7 @@ export interface ListingRecord {
   collection_areas: string[] | undefined;
   date_added: string | undefined;
   checked_on: string | undefined;
+  category: string | undefined;
 }
 
 // Create a Supabase client
