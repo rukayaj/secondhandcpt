@@ -1,4 +1,5 @@
 import { Listing, getAllListings } from './listingUtils';
+import { getAllCategories } from './categoryUtils';
 
 /**
  * Filter interface to represent all possible filter criteria
@@ -101,23 +102,115 @@ export function countBy<T>(
  * Get categories with their counts, optionally filtered by other criteria
  */
 export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
-  // Create a copy of filters without the category
-  const { category, ...otherFilters } = filters;
-  const filteredListings = await filterListings(otherFilters);
-  
-  // Define common categories to look for in the text
-  const categories = [
-    'Clothing', 'Toys', 'Books', 'Furniture', 'Strollers',
-    'Car Seats', 'Cribs', 'High Chairs', 'Bottles', 'Diapers', 'Shoes'
-  ];
-  
-  return categories.map(cat => {
-    const count = filteredListings.filter(listing => 
-      listing.text.toLowerCase().includes(cat.toLowerCase())
-    ).length;
+  try {
+    // Get all defined categories from categoryUtils for consistent ordering
+    const definedCategories = getAllCategories();
+    const categoryNames = Object.keys(definedCategories);
     
-    return { name: cat, count };
-  }).sort((a, b) => b.count - a.count);
+    // Create a copy of filters without the category
+    const { category, ...otherFilters } = filters;
+    
+    // If we have other filters, we need to filter listings first
+    if (Object.keys(otherFilters).length > 0) {
+      const filteredListings = await filterListings(otherFilters);
+      
+      // Count occurrences of each category
+      const categoryCounts: Record<string, number> = {};
+      
+      // Initialize with zero counts for all defined categories
+      for (const cat of categoryNames) {
+        categoryCounts[cat] = 0;
+      }
+      
+      // Count category occurrences in the filtered listings
+      for (const listing of filteredListings) {
+        const cat = listing.category || 'Other';
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      }
+      
+      // Convert to required format with proper ordering
+      return categoryNames
+        .map(name => ({ name, count: categoryCounts[name] || 0 }))
+        .filter(item => item.name !== 'Other' || item.count > 0) // Only include Other if it has counts
+        .sort((a, b) => {
+          // Sort by predefined order, with Other at the end
+          if (a.name === 'Other') return 1;
+          if (b.name === 'Other') return -1;
+          return b.count - a.count; // Then by count
+        });
+    } else {
+      // No other filters, we can use the database function directly
+      // Import the supabase client directly to avoid circular dependencies
+      const { supabase } = await import('./supabase');
+      
+      try {
+        // Try to use the RPC function first
+        const { data, error } = await supabase.rpc('get_category_counts');
+        
+        if (!error && data) {
+          // Process the results to match our defined categories
+          const dbCategories = data.reduce((acc: Record<string, number>, { name, count }: { name: string; count: number }) => {
+            acc[name] = count;
+            return acc;
+          }, {} as Record<string, number>);
+          
+          // Build the result with our defined categories
+          return categoryNames
+            .map(name => ({ name, count: dbCategories[name] || 0 }))
+            .filter(item => item.name !== 'Other' || (dbCategories[item.name] && dbCategories[item.name] > 0))
+            .sort((a, b) => {
+              // Sort by predefined order, with Other at the end
+              if (a.name === 'Other') return 1;
+              if (b.name === 'Other') return -1;
+              return b.count - a.count; // Then by count
+            });
+        }
+        
+        // If RPC fails (function doesn't exist), fallback to manual count
+        console.log('Could not use get_category_counts function, falling back to query...');
+      } catch (err) {
+        console.warn('Error using get_category_counts function:', err);
+      }
+      
+      // Fallback: Query the database and count categories manually
+      const { data: result, error } = await supabase
+        .from('listings')
+        .select('category');
+      
+      if (error) {
+        console.error('Error fetching categories:', error);
+        return [];
+      }
+      
+      // Count occurrences of each category
+      const categoryCounts: Record<string, number> = {};
+      
+      // Initialize with zero counts for all defined categories
+      for (const cat of categoryNames) {
+        categoryCounts[cat] = 0;
+      }
+      
+      // Count database categories
+      for (const record of result) {
+        const cat = record.category || 'Other';
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      }
+      
+      // Convert to required format with proper ordering
+      return categoryNames
+        .map(name => ({ name, count: categoryCounts[name] || 0 }))
+        .filter(item => item.name !== 'Other' || item.count > 0) // Only include Other if it has counts
+        .sort((a, b) => {
+          // Sort by predefined order, with Other at the end
+          if (a.name === 'Other') return 1;
+          if (b.name === 'Other') return -1;
+          return b.count - a.count; // Then by count
+        });
+    }
+  } catch (error) {
+    console.error('Unexpected error in getCategoriesWithCounts:', error);
+    return [];
+  }
 }
 
 /**
