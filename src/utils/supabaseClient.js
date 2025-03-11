@@ -1,32 +1,26 @@
 /**
- * Centralized Supabase client module
+ * Supabase client utility
  * 
- * This module provides Supabase clients for different contexts:
- * - Regular client: For browser usage with public API key
- * - Admin client: For server-side operations requiring service role key
+ * This module provides Supabase client instances for both anonymous and admin access.
  */
 
 const { createClient } = require('@supabase/supabase-js');
 
-// Constants
+// Table names
 const TABLES = {
   LISTINGS: 'listings',
 };
 
-// Storage buckets
+// Storage bucket names
 const STORAGE_BUCKETS = {
   LISTING_IMAGES: 'listing-images',
 };
 
-// Regular client (for browser usage)
-function getClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-}
-
-// Admin client (for server-side operations)
+/**
+ * Get a Supabase client with admin privileges
+ * 
+ * @returns {Object} Supabase Admin client
+ */
 function getAdminClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -34,9 +28,21 @@ function getAdminClient() {
   );
 }
 
+/**
+ * Get a Supabase client with anonymous privileges
+ * 
+ * @returns {Object} Supabase Anonymous client
+ */
+function getAnonClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+}
+
 module.exports = {
-  getClient,
   getAdminClient,
+  getAnonClient,
   TABLES,
-  STORAGE_BUCKETS
+  STORAGE_BUCKETS,
 }; 

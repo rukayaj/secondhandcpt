@@ -17,6 +17,8 @@
  *   --images            Find duplicate images instead of listings
  *   --remove            Remove identified duplicates (use with caution)
  *   --threshold=<n>     Similarity threshold (0-1, default: 0.7)
+ *   --use-phone-numbers Use phone numbers for finding duplicates (default: true)
+ *   --use-db-queries    Use database queries for finding duplicates (default: true)
  */
 
 require('dotenv').config({ path: '.env.local' });
@@ -24,8 +26,8 @@ const fs = require('fs');
 const path = require('path');
 const { program } = require('commander');
 const crypto = require('crypto');
-const { getAllListings, deleteListing } = require('../src/utils/dbUtils');
-const { WHATSAPP_GROUPS } = require('../src/utils/imageHandler');
+const { getAllListings, deleteListing, findDuplicateListings } = require('../../src/utils/dbUtils');
+const { WHATSAPP_GROUPS } = require('../../src/utils/imageHandler');
 
 // Parse command line arguments
 program
@@ -33,6 +35,10 @@ program
   .option('--images', 'Find duplicate images instead of listings')
   .option('--remove', 'Remove identified duplicates (use with caution)')
   .option('--threshold <n>', 'Similarity threshold (0-1)', parseFloat, 0.7)
+  .option('--use-phone-numbers', 'Use phone numbers for finding duplicates', true)
+  .option('--no-use-phone-numbers', 'Don\'t use phone numbers for finding duplicates')
+  .option('--use-db-queries', 'Use database queries for finding duplicates', true)
+  .option('--no-use-db-queries', 'Don\'t use database queries for finding duplicates')
   .parse(process.argv);
 
 const options = program.opts();
@@ -59,43 +65,52 @@ async function findDuplicates() {
  * Find duplicate listings based on various criteria
  */
 async function findDuplicateListings() {
-  // Get all listings from the database
-  console.log('Fetching all listings from the database...');
-  const listings = await getAllListings({ limit: 10000 });
-  console.log(`Found ${listings.length} total listings`);
+  let duplicates = [];
   
-  // Find potential duplicates
-  console.log('\nAnalyzing listings for duplicates...');
-  const duplicates = [];
-  
-  for (let i = 0; i < listings.length; i++) {
-    const listing1 = listings[i];
+  if (options.useDbQueries) {
+    // Use database queries to find duplicates
+    console.log('Using database queries to find duplicates...');
+    duplicates = await findDuplicateListings({
+      threshold: options.threshold,
+      crossGroup: true, // Always search across all groups
+      usePhoneNumbers: options.usePhoneNumbers
+    });
+  } else {
+    // Use the original in-memory approach
+    console.log('Using in-memory approach to find duplicates...');
     
-    for (let j = i + 1; j < listings.length; j++) {
-      const listing2 = listings[j];
+    // Get all listings from the database
+    console.log('Fetching all listings from the database...');
+    const listings = await getAllListings({ limit: 10000 });
+    console.log(`Found ${listings.length} total listings`);
+    
+    // Find potential duplicates
+    console.log('\nAnalyzing listings for duplicates...');
+    
+    for (let i = 0; i < listings.length; i++) {
+      const listing1 = listings[i];
       
-      // Skip if from different WhatsApp groups
-      if (listing1.whatsappGroup !== listing2.whatsappGroup) {
-        continue;
+      for (let j = i + 1; j < listings.length; j++) {
+        const listing2 = listings[j];
+        
+        // Calculate similarity score
+        const similarity = calculateSimilarity(listing1, listing2);
+        
+        // If similarity is above threshold, consider it a potential duplicate
+        if (similarity >= options.threshold) {
+          duplicates.push({
+            listing1,
+            listing2,
+            similarity,
+            reason: getSimilarityReason(listing1, listing2)
+          });
+        }
       }
       
-      // Calculate similarity score
-      const similarity = calculateSimilarity(listing1, listing2);
-      
-      // If similarity is above threshold, consider it a potential duplicate
-      if (similarity >= options.threshold) {
-        duplicates.push({
-          listing1,
-          listing2,
-          similarity,
-          reason: getSimilarityReason(listing1, listing2)
-        });
+      // Show progress every 100 listings
+      if (options.verbose && i % 100 === 0) {
+        console.log(`Processed ${i} of ${listings.length} listings...`);
       }
-    }
-    
-    // Show progress every 100 listings
-    if (options.verbose && i % 100 === 0) {
-      console.log(`Processed ${i} of ${listings.length} listings...`);
     }
   }
   
@@ -119,8 +134,13 @@ async function findDuplicateListings() {
       const { listing1, listing2, similarity, reason } = topDuplicates[i];
       
       console.log(`\n${i + 1}. Similarity: ${similarity.toFixed(2)} - ${reason}`);
-      console.log(`   A: ${listing1.date} - ${listing1.text.substring(0, 100)}...`);
-      console.log(`   B: ${listing2.date} - ${listing2.text.substring(0, 100)}...`);
+      console.log(`   A: [${listing1.whatsappGroup}] ${listing1.date} - ${listing1.text.substring(0, 100)}...`);
+      console.log(`   B: [${listing2.whatsappGroup}] ${listing2.date} - ${listing2.text.substring(0, 100)}...`);
+      
+      // Show phone numbers if available
+      if (listing1.phoneNumber || listing2.phoneNumber) {
+        console.log(`   Phone: ${listing1.phoneNumber || 'N/A'} / ${listing2.phoneNumber || 'N/A'}`);
+      }
     }
     
     // Remove duplicates if requested
@@ -241,19 +261,19 @@ async function findDuplicateImages() {
  * @param {Array} duplicates - Array of duplicate pairs
  */
 async function removeDuplicates(duplicates) {
-  // Only remove listings that are very likely duplicates
-  const highConfidenceDuplicates = duplicates.filter(d => d.similarity > 0.9);
-  console.log(`Found ${highConfidenceDuplicates.length} high-confidence duplicates to remove`);
+  // Only remove listings that meet the threshold criteria
+  // Using the same threshold that was used for finding duplicates
+  console.log(`Found ${duplicates.length} duplicates that meet the threshold criteria (${options.threshold})`);
   
-  if (highConfidenceDuplicates.length === 0) {
-    console.log('No high-confidence duplicates found');
+  if (duplicates.length === 0) {
+    console.log('No duplicates found that meet the criteria');
     return;
   }
   
   // Keep track of listings that have been removed
   const removedIds = new Set();
   
-  for (const { listing1, listing2 } of highConfidenceDuplicates) {
+  for (const { listing1, listing2 } of duplicates) {
     // Skip if either listing has already been removed
     if (removedIds.has(listing1.id) || removedIds.has(listing2.id)) {
       continue;
@@ -338,6 +358,11 @@ function calculateSimilarity(listing1, listing2) {
 function getSimilarityReason(listing1, listing2) {
   const reasons = [];
   
+  // Check if from different WhatsApp groups
+  if (listing1.whatsappGroup !== listing2.whatsappGroup) {
+    reasons.push(`Cross-group: ${listing1.whatsappGroup}/${listing2.whatsappGroup}`);
+  }
+  
   // Check for shared images
   if (listing1.images.length > 0 && listing2.images.length > 0) {
     const sharedImages = listing1.images.filter(img => listing2.images.includes(img));
@@ -370,6 +395,17 @@ function getSimilarityReason(listing1, listing2) {
   // Check for same condition
   if (listing1.condition && listing2.condition && listing1.condition === listing2.condition) {
     reasons.push('Same condition');
+  }
+  
+  // Check for same collection areas
+  if (listing1.collectionAreas.length > 0 && listing2.collectionAreas.length > 0) {
+    const sharedAreas = listing1.collectionAreas.filter(area => 
+      listing2.collectionAreas.includes(area)
+    );
+    
+    if (sharedAreas.length > 0) {
+      reasons.push(`Shared areas: ${sharedAreas.length}`);
+    }
   }
   
   return reasons.join(', ') || 'Unknown';

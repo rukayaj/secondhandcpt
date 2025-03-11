@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 
 /**
+ * DEPRECATED: This script is deprecated and will be removed in a future version.
+ * Please use scripts/image-handling/waha-image-handler.js instead.
+ *
+ * Upload WhatsApp images to Supabase storage
+ * 
+ * This script uploads images from WhatsApp exports to Supabase storage and updates
+ * the database entries with the new image URLs.
+ */
+
+/**
  * Script to upload images from WhatsApp chat groups to Supabase Storage
  * 
  * Usage:

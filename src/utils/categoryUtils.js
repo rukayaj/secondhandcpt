@@ -113,7 +113,7 @@ const CATEGORIES = {
 };
 
 // Default category when no strong match is found
-const DEFAULT_CATEGORY = 'Other';
+const DEFAULT_CATEGORY = 'Uncategorised';
 
 /**
  * Calculate the category score for a text based on pattern matching

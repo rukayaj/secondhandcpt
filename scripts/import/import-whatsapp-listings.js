@@ -1,4 +1,7 @@
 /**
+ * DEPRECATED: This script is deprecated and will be removed in a future version.
+ * Please use scripts/import/waha-import.js instead.
+ * 
  * Import WhatsApp listings with enhanced categorization
  * 
  * This script:

@@ -147,7 +147,7 @@ const DEFAULT_OPTIONS = {
   batchSize: 10,
   service: 'MOCK', // Change to 'OPENAI' when ready to use real service
   dryRun: true,
-  onlyOtherCategory: true // Default to only processing "Other" category listings
+  onlyUncategorized: true // Default to only processing "Uncategorised" category listings
 };
 
 /**
@@ -155,7 +155,7 @@ const DEFAULT_OPTIONS = {
  * @param {Object} options - Processing options
  */
 async function categorizeListingsWithLLM(options) {
-  const { limit, batchSize, service, dryRun, onlyOtherCategory } = {
+  const { limit, batchSize, service, dryRun, onlyUncategorized } = {
     ...DEFAULT_OPTIONS,
     ...options
   };
@@ -165,27 +165,38 @@ async function categorizeListingsWithLLM(options) {
   console.log(`- Limit: ${limit} listings`);
   console.log(`- Batch size: ${batchSize}`);
   console.log(`- Mode: ${dryRun ? 'Dry run (no database changes)' : 'Live run (will update database)'}`);
-  console.log(`- Filter: ${onlyOtherCategory ? 'Only "Other" category listings' : 'All listings'}`);
+  console.log(`- Filter: ${onlyUncategorized ? 'Only "Uncategorised" category listings' : 'All listings'}`);
   
   // Fetch listings that need categorization
-  console.log(`\nFetching listings...`);
-  
-  // Start the query
-  let query = supabase.from('listings').select('id, text, category');
-  
-  // Filter by category if needed
-  if (onlyOtherCategory) {
-    // Filter for NULL category or "Other" category
-    query = query.or('category.is.null,category.eq.Other');
-    console.log('Filtering for listings with NULL or "Other" category only');
+  console.log('\nGetting uncategorized listings...');
+
+  // Build query
+  let query = supabase
+    .from('listings')
+    .select('id, text, category');
+
+  // Filter by category if specified
+  if (onlyUncategorized) {
+    query = query.or('category.is.null,category.eq.Uncategorised,category.eq.');
+    console.log('Filtering for listings with NULL or "Uncategorised" category only');
   }
-  
-  // Limit the number of results
-  const { data: listings, error } = await query.limit(limit);
-  
-  if (error) {
-    console.error('Error fetching listings:', error);
-    return;
+
+  // Add limit and order
+  const { data: listings, error: fetchError } = await query
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (fetchError) {
+    if (fetchError.message.includes('category')) {
+      console.error('❌ Category column doesn\'t exist in the database. Please run the SQL script first:');
+      console.log('Run this SQL in the Supabase SQL Editor:');
+      console.log('  ALTER TABLE listings ADD COLUMN IF NOT EXISTS category TEXT DEFAULT \'Uncategorised\';');
+      console.log('  CREATE INDEX IF NOT EXISTS idx_listings_category ON listings (category);');
+      return;
+    } else {
+      console.error('❌ Error fetching listings:', fetchError.message);
+      return;
+    }
   }
   
   console.log(`Found ${listings.length} listings to categorize`);
@@ -373,8 +384,8 @@ function promptForOptions() {
         rl.question('\nMode:\n1. Dry run (no database changes)\n2. Live run (will update database)\nChoice: ', (modeChoice) => {
           const dryRun = modeChoice !== '2';
           
-          rl.question('\nFilter listings by category:\n1. Only "Other" category listings (recommended)\n2. All listings\nChoice: ', (filterChoice) => {
-            const onlyOtherCategory = filterChoice !== '2';
+          rl.question('\nFilter listings by category:\n1. Only "Uncategorised" category listings (recommended)\n2. All listings\nChoice: ', (filterChoice) => {
+            const onlyUncategorized = filterChoice !== '2';
             
             // Final confirmation
             console.log('\n===== Confirmation =====');
@@ -382,7 +393,7 @@ function promptForOptions() {
             console.log(`Limit: ${limit} listings`);
             console.log(`Batch size: ${batchSize}`);
             console.log(`Mode: ${dryRun ? 'Dry run (no database changes)' : 'Live run (will update database)'}`);
-            console.log(`Filter: ${onlyOtherCategory ? 'Only "Other" category listings' : 'All listings'}`);
+            console.log(`Filter: ${onlyUncategorized ? 'Only "Uncategorised" category listings' : 'All listings'}`);
             
             rl.question('\nProceed? (y/n): ', async (confirm) => {
               if (confirm.toLowerCase() === 'y') {
@@ -391,7 +402,7 @@ function promptForOptions() {
                   limit,
                   batchSize,
                   dryRun,
-                  onlyOtherCategory
+                  onlyUncategorized
                 });
               } else {
                 console.log('Operation cancelled');
@@ -451,7 +462,7 @@ async function main() {
     options.dryRun = !args.includes('--live');
     
     // Parse category filter
-    options.onlyOtherCategory = !args.includes('--all');
+    options.onlyUncategorized = !args.includes('--all');
     
     // Run with non-interactive options
     console.log('Running in non-interactive mode with options:');
@@ -459,7 +470,7 @@ async function main() {
     console.log(`- Limit: ${options.limit}`);
     console.log(`- Batch size: ${options.batchSize}`);
     console.log(`- Mode: ${options.dryRun ? 'Dry run' : 'Live run'}`);
-    console.log(`- Filter: ${options.onlyOtherCategory ? 'Only "Other" category' : 'All listings'}`);
+    console.log(`- Filter: ${options.onlyUncategorized ? 'Only "Uncategorised" category' : 'All listings'}`);
     
     await categorizeListingsWithLLM(options);
     process.exit(0);

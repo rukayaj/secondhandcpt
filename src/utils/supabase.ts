@@ -19,6 +19,7 @@ export interface ListingRecord {
   date_added: string | undefined;
   checked_on: string | undefined;
   category: string | undefined;
+  is_iso: boolean | undefined; // Flag for "In Search Of" listings
 }
 
 // Create a Supabase client

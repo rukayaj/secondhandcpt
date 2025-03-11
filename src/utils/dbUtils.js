@@ -9,6 +9,7 @@
  */
 
 const { getAdminClient, TABLES } = require('./supabaseClient');
+const { extractPhoneNumber } = require('./listingParser');
 
 /**
  * Add a new listing to the database
@@ -19,6 +20,9 @@ const { getAdminClient, TABLES } = require('./supabaseClient');
 async function addListing(listing) {
   try {
     const supabase = getAdminClient();
+    
+    // Extract phone number from the listing text
+    const phoneNumber = extractPhoneNumber(listing.text);
     
     // Format the listing for the database
     const dbListing = {
@@ -32,7 +36,8 @@ async function addListing(listing) {
       collection_areas: listing.collectionAreas || [],
       date_added: new Date().toISOString(),
       is_iso: listing.isISO || false,
-      category: listing.category || 'Other'
+      category: listing.category || 'Uncategorised',
+      phone_number: phoneNumber
     };
     
     // Add the listing to the database
@@ -80,7 +85,7 @@ async function addListings(listings) {
       collection_areas: listing.collectionAreas || [],
       date_added: new Date().toISOString(),
       is_iso: listing.isISO || false,
-      category: listing.category || 'Other'
+      category: listing.category || 'Uncategorised'
     }));
     
     // Add the listings to the database in batches
@@ -226,9 +231,10 @@ async function getAllListings(options = {}) {
       price: record.price,
       condition: record.condition,
       collectionAreas: record.collection_areas || [],
-      category: record.category || 'Other',
+      category: record.category || 'Uncategorised',
       dateAdded: record.date_added,
-      isISO: record.is_iso || false
+      isISO: record.is_iso || false,
+      phoneNumber: record.phone_number
     }));
   } catch (error) {
     console.error('Error in getAllListings:', error);
@@ -276,7 +282,7 @@ async function getListingsByCategory(category, options = {}) {
       price: record.price,
       condition: record.condition,
       collectionAreas: record.collection_areas || [],
-      category: record.category || 'Other',
+      category: record.category || 'Uncategorised',
       dateAdded: record.date_added,
       isISO: record.is_iso || false
     }));
@@ -326,7 +332,7 @@ async function searchListings(searchTerm, options = {}) {
       price: record.price,
       condition: record.condition,
       collectionAreas: record.collection_areas || [],
-      category: record.category || 'Other',
+      category: record.category || 'Uncategorised',
       dateAdded: record.date_added,
       isISO: record.is_iso || false
     }));
@@ -367,7 +373,7 @@ async function getListingsWithMissingImages() {
       price: record.price,
       condition: record.condition,
       collectionAreas: record.collection_areas || [],
-      category: record.category || 'Other',
+      category: record.category || 'Uncategorised',
       dateAdded: record.date_added,
       isISO: record.is_iso || false
     }));
@@ -404,6 +410,113 @@ async function deleteListing(id) {
   }
 }
 
+/**
+ * Find duplicate listings using database queries
+ * 
+ * @param {Object} options - Options for finding duplicates
+ * @param {number} options.threshold - Similarity threshold (0-1)
+ * @param {boolean} options.crossGroup - Whether to search across all WhatsApp groups
+ * @returns {Promise<Array>} - Array of duplicate pairs
+ */
+async function findDuplicateListings(options = {}) {
+  try {
+    const supabase = getAdminClient();
+    const duplicates = [];
+    
+    // Find duplicates by phone number (if available)
+    if (options.usePhoneNumbers) {
+      console.log('Finding duplicates by phone number...');
+      
+      const { data: phoneNumberDuplicates, error: phoneError } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('*')
+        .not('phone_number', 'is', null)
+        .order('phone_number');
+      
+      if (phoneError) {
+        throw new Error(`Error finding duplicates by phone number: ${phoneError.message}`);
+      }
+      
+      // Group by phone number
+      const phoneGroups = {};
+      for (const listing of phoneNumberDuplicates) {
+        if (!listing.phone_number) continue;
+        
+        if (!phoneGroups[listing.phone_number]) {
+          phoneGroups[listing.phone_number] = [];
+        }
+        phoneGroups[listing.phone_number].push(listing);
+      }
+      
+      // Find groups with more than one listing
+      for (const phoneNumber in phoneGroups) {
+        const group = phoneGroups[phoneNumber];
+        if (group.length > 1) {
+          // Create duplicate pairs
+          for (let i = 0; i < group.length; i++) {
+            for (let j = i + 1; j < group.length; j++) {
+              // Skip if from different WhatsApp groups and crossGroup is false
+              if (!options.crossGroup && group[i].whatsapp_group !== group[j].whatsapp_group) {
+                continue;
+              }
+              
+              // Convert to application format
+              const listing1 = {
+                id: group[i].id,
+                whatsappGroup: group[i].whatsapp_group,
+                date: group[i].date,
+                sender: group[i].sender,
+                text: group[i].text,
+                images: group[i].images || [],
+                price: group[i].price,
+                condition: group[i].condition,
+                collectionAreas: group[i].collection_areas || [],
+                category: group[i].category || 'Uncategorised',
+                dateAdded: group[i].date_added,
+                isISO: group[i].is_iso || false,
+                phoneNumber: group[i].phone_number
+              };
+              
+              const listing2 = {
+                id: group[j].id,
+                whatsappGroup: group[j].whatsapp_group,
+                date: group[j].date,
+                sender: group[j].sender,
+                text: group[j].text,
+                images: group[j].images || [],
+                price: group[j].price,
+                condition: group[j].condition,
+                collectionAreas: group[j].collection_areas || [],
+                category: group[j].category || 'Uncategorised',
+                dateAdded: group[j].date_added,
+                isISO: group[j].is_iso || false,
+                phoneNumber: group[j].phone_number
+              };
+              
+              duplicates.push({
+                listing1,
+                listing2,
+                similarity: 1.0, // Phone number match is a strong indicator
+                reason: `Same phone number: ${phoneNumber}`
+              });
+            }
+          }
+        }
+      }
+      
+      console.log(`Found ${duplicates.length} duplicate pairs by phone number`);
+    }
+    
+    // Find duplicates by text similarity (using the existing approach)
+    // This would be a fallback for listings without phone numbers
+    
+    return duplicates;
+  } catch (error) {
+    console.error('Error in findDuplicateListings:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   addListing,
   addListings,
@@ -413,5 +526,6 @@ module.exports = {
   getListingsByCategory,
   searchListings,
   getListingsWithMissingImages,
-  deleteListing
+  deleteListing,
+  findDuplicateListings
 }; 

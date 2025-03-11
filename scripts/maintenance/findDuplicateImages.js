@@ -1,3 +1,13 @@
+/**
+ * DEPRECATED: This script is deprecated and will be removed in a future version.
+ * Please use scripts/maintenance/duplicate-finder.js instead.
+ * 
+ * Find duplicate images in the database
+ * 
+ * This script identifies duplicate images based on filename and updates
+ * a JSON file with the results.
+ */
+
 const fs = require('fs');
 const path = require('path');
 

@@ -3,6 +3,7 @@ import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
 import Pagination from '@/components/Pagination';
 import { getISOPosts, Listing } from '@/utils/listingUtils';
+import { filterISOPosts, FilterCriteria } from '@/utils/filterUtils';
 import { useRouter } from 'next/router';
 
 interface ISOPageProps {
@@ -117,38 +118,41 @@ export default function ISOPage({ isoPosts, totalPosts }: ISOPageProps) {
 
 export async function getServerSideProps({ query }: { query: any }) {
   try {
-    const { dateRange, page = '1' } = query;
+    const { dateRange, page = '1', category } = query;
     const currentPage = parseInt(page, 10);
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     
-    // Get all ISO posts
-    const isoPosts = await getISOPosts();
-    let allIsoPosts = [...isoPosts];
+    // Create filter criteria
+    const filterCriteria: FilterCriteria = {};
     
-    // Filter by date range if specified
+    // Add date range filter if specified
     if (dateRange) {
-      const now = new Date();
-      const cutoffDate = new Date();
-      
+      let days: number;
       switch (dateRange) {
-        case 'day':
-          cutoffDate.setDate(now.getDate() - 1);
+        case 'today':
+          days = 1;
+          break;
+        case '3days':
+          days = 3;
           break;
         case 'week':
-          cutoffDate.setDate(now.getDate() - 7);
+          days = 7;
           break;
         case 'month':
-          cutoffDate.setMonth(now.getMonth() - 1);
-          break;
         default:
-          // No date filter
+          days = 30;
           break;
       }
-      
-      allIsoPosts = allIsoPosts.filter(
-        (post: Listing) => new Date(post.date) >= cutoffDate
-      );
+      filterCriteria.dateRange = days;
     }
+    
+    // Add category filter if specified
+    if (category) {
+      filterCriteria.category = category as string;
+    }
+    
+    // Get filtered ISO posts
+    const allIsoPosts = await filterISOPosts(filterCriteria);
     
     // Sort by date (newest first)
     allIsoPosts.sort((a: Listing, b: Listing) => new Date(b.date).getTime() - new Date(a.date).getTime());

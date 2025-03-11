@@ -1,3 +1,13 @@
+/**
+ * DEPRECATED: This script is deprecated and will be removed in a future version.
+ * Please use scripts/maintenance/duplicate-finder.js instead.
+ * 
+ * Find duplicate listings in the database
+ * 
+ * This script identifies potential duplicate listings based on similarity
+ * of text content and other attributes.
+ */
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

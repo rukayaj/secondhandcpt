@@ -31,7 +31,9 @@ export function convertRecordToListing(record: ListingRecord): Listing {
     collectionAreas: record.collection_areas || [],
     dateAdded: record.date_added || '',
     checkedOn: record.checked_on || null,
-    isISO: record.text.toLowerCase().includes('iso') || record.text.toLowerCase().includes('in search of'),
+    isISO: record.is_iso !== undefined ? record.is_iso : 
+           // Fallback to text detection if database field is not set
+           record.text.toLowerCase().includes('iso') || record.text.toLowerCase().includes('in search of'),
     category: record.category || 'Other' // Use the database category or default to 'Other'
   };
 }
@@ -102,18 +104,42 @@ export async function getListingsByPriceRange(minPrice: number, maxPrice: number
 
 // Get ISO (In Search Of) posts
 export async function getISOPosts(): Promise<Listing[]> {
-  const { data, error } = await supabase
-    .from(TABLES.LISTINGS)
-    .select('*')
-    .or('text.ilike.%iso%,text.ilike.%in search of%')
-    .order('date_added', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching ISO posts:', error);
+  try {
+    // First try using the database is_iso field
+    const { data, error } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('*')
+      .eq('is_iso', true)
+      .order('date_added', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching ISO posts:', error);
+      return [];
+    }
+    
+    // If we got results, return them
+    if (data && data.length > 0) {
+      return (data as ListingRecord[]).map(convertRecordToListing);
+    }
+    
+    // Fallback to text-based detection if no results (for backwards compatibility)
+    console.log('No ISO posts found using is_iso field, falling back to text search.');
+    const { data: textData, error: textError } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('*')
+      .or('text.ilike.%iso%,text.ilike.%in search of%')
+      .order('date_added', { ascending: false });
+    
+    if (textError) {
+      console.error('Error in fallback ISO posts fetch:', textError);
+      return [];
+    }
+    
+    return (textData as ListingRecord[]).map(convertRecordToListing);
+  } catch (err) {
+    console.error('Unexpected error in getISOPosts:', err);
     return [];
   }
-
-  return (data as ListingRecord[]).map(convertRecordToListing);
 }
 
 // Get categories with counts (using the category column)

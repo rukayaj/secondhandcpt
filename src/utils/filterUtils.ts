@@ -1,4 +1,4 @@
-import { Listing, getAllListings } from './listingUtils';
+import { Listing, getAllListings, getISOPosts } from './listingUtils';
 import { getAllCategories } from './categoryUtils';
 
 /**
@@ -12,6 +12,7 @@ export interface FilterCriteria {
   dateRange?: number; // in days
   condition?: string;
   size?: string;
+  includeISO?: boolean; // New flag to control inclusion of ISO posts
 }
 
 /**
@@ -21,6 +22,11 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
   // Always fetch fresh listings from the database
   const listings = await getAllListings();
   let filteredListings = [...listings];
+  
+  // Filter out ISO posts by default unless explicitly included
+  if (filters.includeISO !== true) {
+    filteredListings = filteredListings.filter(listing => !listing.isISO);
+  }
   
   // Filter by category
   if (filters.category) {
@@ -76,6 +82,47 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
   }
   
   return filteredListings;
+}
+
+/**
+ * Get ISO posts with filtering
+ * This function works specifically with ISO posts and applies the same filtering options
+ */
+export async function filterISOPosts(filters: FilterCriteria = {}): Promise<Listing[]> {
+  // Get ISO posts (which uses the database is_iso field)
+  const isoPosts = await getISOPosts();
+  let filteredPosts = [...isoPosts];
+  
+  // Apply the same filters but skip the ISO check since we know these are all ISO
+  
+  // Filter by category
+  if (filters.category) {
+    filteredPosts = filteredPosts.filter(post => 
+      post.category === filters.category
+    );
+  }
+  
+  // Filter by location
+  if (filters.location) {
+    filteredPosts = filteredPosts.filter(
+      post => post.collectionAreas.some(area => 
+        area.toLowerCase().includes(filters.location!.toLowerCase())
+      )
+    );
+  }
+  
+  // Filter by date range (in days)
+  if (filters.dateRange) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - filters.dateRange);
+    
+    filteredPosts = filteredPosts.filter(post => {
+      const postDate = new Date(post.date);
+      return postDate >= cutoffDate;
+    });
+  }
+  
+  return filteredPosts;
 }
 
 /**

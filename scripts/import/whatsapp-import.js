@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 /**
+ * DEPRECATED: This script is deprecated and will be removed in a future version.
+ * Please use scripts/import/waha-import.js instead.
+ * 
  * WhatsApp Import Script
  * 
  * This script handles the entire process of importing WhatsApp listings:

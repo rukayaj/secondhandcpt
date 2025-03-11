@@ -1,4 +1,7 @@
 /**
+ * DEPRECATED: This script is deprecated and will be removed in a future version.
+ * Please use scripts/image-handling/waha-image-handler.js instead.
+ * 
  * Copy WhatsApp images from source directory to public directory
  * 
  * This script:

@@ -8,15 +8,17 @@
  * - No need to scan QR code every time (persistent session)
  * - No manual export step needed
  * - More reliable than browser automation
+ * - Uses last import date to avoid re-importing deleted messages
  * 
  * Usage:
- * node scripts/waha-import.js [options]
+ * node scripts/import/waha-import.js [options]
  * 
  * Options:
  *   --verbose           Show detailed output
  *   --upload-images     Upload images to Supabase Storage
  *   --check-images      Check for missing images in Supabase Storage
  *   --days=<n>          Number of days of history to fetch (default: 30)
+ *   --ignore-last-date  Ignore the last import date and use days parameter
  */
 
 require('dotenv').config({ path: '.env.local' });
@@ -24,21 +26,29 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { program } = require('commander');
-const { createClient } = require('@supabase/supabase-js');
 
 // Import utility modules
-const { processListing } = require('../src/utils/listingParser');
-const { processListing: categorizeListing } = require('../src/utils/categoryUtils');
-const { listingExists, addListing } = require('../src/utils/dbUtils');
-const { 
-  WHATSAPP_GROUPS, 
-  uploadImagesToSupabase, 
-  checkMissingImages 
-} = require('../src/utils/imageHandler');
+const { processListing } = require('../../src/utils/listingParser');
+const { processListing: categorizeListing } = require('../../src/utils/categoryUtils');
+const { listingExists, addListing } = require('../../src/utils/dbUtils');
+const { getLastImportDate, updateLastImportDate } = require('../../src/utils/metadataUtils');
 
-// WAHA API Configuration
-const WAHA_BASE_URL = 'http://localhost:3001/api'; // Your WAHA API URL
-const WAHA_SESSION = 'default'; // Default session name
+// Import our consolidated utility modules
+const { 
+  WHATSAPP_GROUPS,
+  WAHA_BASE_URL,
+  WAHA_SESSION,
+  getAdminClient,
+  checkWahaSessionStatus,
+  startWahaSession,
+  waitForWahaAuthentication,
+  createDirectories
+} = require('./importUtils');
+
+const {
+  uploadImageToSupabase,
+  checkMissingSupabaseImages
+} = require('../image-handling/imageUtils');
 
 // Parse command line arguments
 program
@@ -46,21 +56,19 @@ program
   .option('--upload-images', 'Upload images to Supabase Storage')
   .option('--check-images', 'Check for missing images in Supabase Storage')
   .option('--days <n>', 'Number of days of history to fetch', parseInt, 30)
+  .option('--ignore-last-date', 'Ignore the last import date and use days parameter')
   .parse(process.argv);
 
 const options = program.opts();
 
 // WhatsApp group mapping (group name to WAHA chat ID)
-// You'll need to manually set these chat IDs since automatic discovery 
-// is not available in the free version of WAHA
-const GROUP_MAPPING = {
-  'Nifty Thrifty Modern Cloth Nappies': '120363139582792913@g.us',
-  'Nifty Thrifty 0-1 year (2)': '120363190438741302@g.us',
-  'Nifty Thrifty Bumps & Boobs': '120363068687931519@g.us',
-  'Nifty Thrifty 0-1 year (1)': '27787894429-1623257234@g.us',
-  'Nifty Thrifty 1-3 years': '120363172946506359@g.us',
-  'Nifty Thrifty Kids (3-8 years) 2': '120363315487735378@g.us'
-};
+// Get mapping from importUtils
+const GROUP_MAPPING = WHATSAPP_GROUPS.reduce((map, group) => {
+  if (group.chatId) {
+    map[group.name] = group.chatId;
+  }
+  return map;
+}, {});
 
 /**
  * Main function to run the import process
@@ -81,7 +89,7 @@ async function importWhatsAppListings() {
     }
     
     // Now check session status
-    const sessionStatus = await checkSessionStatus();
+    const sessionStatus = await checkWahaSessionStatus();
     
     if (!sessionStatus.authenticated) {
       // If session exists but is not authenticated
@@ -89,21 +97,22 @@ async function importWhatsAppListings() {
         console.log('⚠️ Session already exists but is not authenticated.');
         console.log('You may need to restart the WAHA Docker container with:');
         console.log('docker stop $(docker ps -q --filter "ancestor=devlikeapro/waha")');
-        console.log('And then run this script again, or use the --restart-waha flag with the update script.');
-        throw new Error('Session exists but is not authenticated. Try restarting WAHA container.');
+        console.log('And then run this script again with the --update flag.');
+        throw new Error('Session exists but is not authenticated');
       }
       
-      console.log('⚠️ WAHA session is not authenticated. Please authenticate:');
-      
+      // Try to start a new session
+      console.log('Starting a new WAHA session...');
       try {
-        const qrCode = await startSession();
+        const qrCode = await startWahaSession();
+        
         if (qrCode) {
           console.log('Please scan this QR code with your WhatsApp app:');
           console.log(qrCode);
           console.log('\nWaiting for session authentication...');
           
           // Wait for session to be authenticated
-          await waitForAuthentication();
+          await waitForWahaAuthentication();
           console.log('✅ Session authenticated successfully!');
         } else {
           // No QR code but we were successful (rare case)
@@ -116,7 +125,7 @@ async function importWhatsAppListings() {
           console.log('Session is already started. Trying to use existing session...');
           
           // Try to get the status again to see if we're authenticated
-          const updatedStatus = await checkSessionStatus();
+          const updatedStatus = await checkWahaSessionStatus();
           if (updatedStatus.authenticated) {
             console.log('✅ Using existing authenticated session.');
           } else {
@@ -149,7 +158,7 @@ async function importWhatsAppListings() {
       console.log('\n❌ No group IDs configured. You need to manually set the chat IDs in the GROUP_MAPPING object.');
       console.log('Since the free version of WAHA does not support the /api/chats endpoint for automatic discovery,');
       console.log('you need to know the chat IDs from another source or by looking at the WhatsApp Web network requests.');
-      console.log('\nPlease update the GROUP_MAPPING in waha-import.js with your chat IDs.');
+      console.log('\nPlease update the WHATSAPP_GROUPS in importUtils.js with your chat IDs.');
       throw new Error('No group IDs configured');
     }
     
@@ -171,8 +180,20 @@ async function importWhatsAppListings() {
     // Step 6: Check for missing images
     if (options.checkImages) {
       console.log('\nStep 6: Checking for missing images in Supabase Storage...');
-      const missingImages = await checkMissingImages({ verbose: options.verbose });
+      // Use the utility function directly
+      const missingImages = await checkForMissingImages(options.verbose);
       console.log(`Found ${missingImages.length} missing images`);
+    }
+    
+    // Step 7: Update the last import date if we added any listings
+    if (addedListings.length > 0) {
+      console.log('\nStep 7: Updating last import date...');
+      // Use the current date as the last import date
+      const now = new Date();
+      updateLastImportDate(now, { count: addedListings.length });
+      console.log(`Updated last import date to ${now.toISOString()}`);
+    } else {
+      console.log('\nNo new listings added, last import date not updated.');
     }
     
     console.log('\n===== WhatsApp Import Process Complete =====');
@@ -184,116 +205,58 @@ async function importWhatsAppListings() {
 }
 
 /**
- * Check the status of the WAHA session
+ * Check for missing images in Supabase Storage
+ * @param {boolean} verbose - Whether to show detailed output
+ * @returns {Promise<Array>} - Array of missing images
  */
-async function checkSessionStatus() {
+async function checkForMissingImages(verbose = false) {
   try {
-    const response = await axios.get(`${WAHA_BASE_URL}/sessions/${WAHA_SESSION}`);
-    // Check if session is working and connected
-    if (response.data && response.data.status === 'WORKING' && 
-        response.data.engine && response.data.engine.state === 'CONNECTED') {
-      return { authenticated: true, exists: true };
-    } else {
-      return { 
-        authenticated: false, 
-        exists: true,
-        message: 'Session exists but is not authenticated'
-      };
+    console.log('Checking for missing images in Supabase Storage...');
+    
+    // Get listings with images
+    const supabase = getAdminClient();
+    const { data: listings, error } = await supabase
+      .from('listings')
+      .select('id, whatsapp_group, images')
+      .not('images', 'is', null)
+      .not('images', 'eq', '{}');
+    
+    if (error) {
+      throw new Error(`Error fetching listings: ${error.message}`);
     }
-  } catch (error) {
-    if (error.response && error.response.status === 404) {
-      // Session doesn't exist
-      return { authenticated: false, exists: false };
-    } else if (error.response && error.response.status === 422) {
-      // Session exists but might not be authenticated
-      return { 
-        authenticated: false, 
-        exists: true,
-        message: error.response.data.message || 'Session exists but status unknown'
-      };
-    }
-    throw error;
-  }
-}
-
-/**
- * Start a new WAHA session
- */
-async function startSession() {
-  try {
-    // First check if session already exists
-    const status = await checkSessionStatus();
-    if (status.exists) {
-      console.log('Session already exists. Checking authentication status...');
+    
+    console.log(`Found ${listings.length} listings with images`);
+    
+    // Find missing images
+    const missingImages = [];
+    let processed = 0;
+    
+    for (const listing of listings) {
+      const missing = await checkMissingSupabaseImages(listing);
+      missingImages.push(...missing);
       
-      if (status.authenticated) {
-        console.log('✅ Session is already authenticated.');
-        return null; // No QR needed
-      } else {
-        throw new Error('Session exists but is not authenticated. You may need to restart WAHA.');
+      processed++;
+      if (verbose && processed % 50 === 0) {
+        console.log(`Processed ${processed}/${listings.length} listings`);
       }
     }
     
-    // Start a new session
-    const response = await axios.post(`${WAHA_BASE_URL}/sessions/start`, {
-      name: WAHA_SESSION
-    });
-    if (response.data && response.data.qr) {
-      return response.data.qr;
-    } else {
-      console.log('No QR code returned, but session may have started.');
-      return null;
-    }
+    return missingImages;
   } catch (error) {
-    if (error.response && error.response.status === 422 && 
-        error.response.data && error.response.data.message) {
-      // Session already exists or other error
-      console.log(`Server response: ${error.response.data.message}`);
-      
-      if (error.response.data.message.includes('already started')) {
-        console.log('Session already exists. Checking authentication status...');
-        
-        // Check if the session is authenticated
-        const sessionStatus = await checkSessionStatus();
-        if (sessionStatus.authenticated) {
-          console.log('✅ Session is authenticated and ready to use.');
-          return null; // Already authenticated, no QR needed
-        } else {
-          throw new Error('Session exists but is not authenticated. You may need to restart WAHA.');
-        }
-      } else {
-        throw new Error(`WAHA error: ${error.response.data.message}`);
-      }
-    }
+    console.error('Error checking for missing images:', error);
+    return [];
   }
-}
-
-/**
- * Wait for the WAHA session to be authenticated
- */
-async function waitForAuthentication() {
-  const maxAttempts = 30;
-  for (let i = 0; i < maxAttempts; i++) {
-    const status = await checkSessionStatus();
-    if (status.authenticated) {
-      return true;
-    }
-    // Wait 5 seconds before checking again
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    process.stdout.write('.');
-  }
-  throw new Error('Authentication timeout. Please try again.');
 }
 
 /**
  * Discover WhatsApp chats and update the GROUP_MAPPING
  * 
  * Note: This function is not used in the free version of WAHA since the /api/chats
- * endpoint is not available. The GROUP_MAPPING needs to be configured manually.
+ * endpoint is not available. The GROUP_MAPPING needs to be configured manually in importUtils.js.
  */
 async function discoverChats() {
   console.log('⚠️ Automatic chat discovery is not available in the free version of WAHA.');
-  console.log('Using pre-configured group IDs from GROUP_MAPPING...');
+  console.log('Using pre-configured group IDs from WHATSAPP_GROUPS in importUtils.js...');
   
   // Just for backward compatibility, we return without doing anything
   return;
@@ -302,15 +265,32 @@ async function discoverChats() {
 /**
  * Fetch messages from all WhatsApp groups
  * 
- * @param {number} days - Number of days of history to fetch
+ * @param {number} days - Number of days of history to fetch (used if no last import date)
  * @returns {Promise<Array>} - Array of all extracted listings
  */
 async function fetchAllGroupMessages(days) {
   const allListings = [];
-  const now = new Date();
-  const daysInMilliseconds = days * 24 * 60 * 60 * 1000;
-  const startDate = new Date(now.getTime() - daysInMilliseconds);
-  const startTime = Math.floor(startDate.getTime());
+  
+  // Determine the start date for fetching messages
+  let startDate;
+  let startTime;
+  
+  // Get the last import date from metadata
+  const lastImportDate = getLastImportDate();
+  
+  if (lastImportDate && !options.ignoreLastDate) {
+    // Use the last import date if available
+    startDate = lastImportDate;
+    startTime = Math.floor(startDate.getTime());
+    console.log(`Using last import date: ${startDate.toISOString()}`);
+  } else {
+    // Fall back to using the days parameter
+    const now = new Date();
+    const daysInMilliseconds = days * 24 * 60 * 60 * 1000;
+    startDate = new Date(now.getTime() - daysInMilliseconds);
+    startTime = Math.floor(startDate.getTime());
+    console.log(`Using ${days} days of history from ${startDate.toISOString()}`);
+  }
   
   if (options.verbose) {
     console.log(`Filtering messages from ${startDate.toISOString()} onwards`);
@@ -348,52 +328,45 @@ async function fetchAllGroupMessages(days) {
       }
       
       if (!response.data || !Array.isArray(response.data)) {
-        console.log(`⚠️ No valid data returned for group: ${groupName}. Received:`, response.data);
+        console.log(`⚠️ Unexpected response format for ${groupName}. Skipping.`);
         continue;
       }
       
-      const messages = response.data.filter(msg => {
-        // Ensure timestamp is in milliseconds for comparison
-        const msgTime = typeof msg.timestamp === 'number' ? 
-          (msg.timestamp > 9999999999 ? msg.timestamp : msg.timestamp * 1000) : 0;
+      // Filter messages by date and not from the user
+      const filteredMessages = response.data.filter(msg => {
+        // Convert timestamp to date object
+        const msgDate = new Date(msg.timestamp * 1000);
         
-        const isWithinTimeWindow = msgTime >= startTime;
-        const isNotFromMe = !msg.fromMe;
+        // Check if message is after the start date
+        const isAfterStartDate = msgDate.getTime() >= startTime;
         
-        if (options.verbose && msg.timestamp) {
-          const msgDate = new Date(msgTime);
-          console.log(`Message timestamp: ${msg.timestamp} -> ${msgTime} (${msgDate.toISOString()})`);
-          console.log(`Start time: ${startTime} (${startDate.toISOString()})`);
-          console.log(`Is within time window: ${isWithinTimeWindow}`);
-          console.log(`Is not from me: ${isNotFromMe}`);
-          console.log(`Message body: ${msg.body ? msg.body.substring(0, 30) : 'No body'}`);
-          console.log('---');
+        // Check if message is not from the user
+        const isNotFromUser = !msg.fromMe;
+        
+        if (options.verbose) {
+          console.log(`Message timestamp: ${msgDate.toISOString()}, after start date: ${isAfterStartDate}, not from user: ${isNotFromUser}`);
+          console.log(`Sample message: ${msg.body ? msg.body.substring(0, 50) : 'No body'}`);
         }
         
-        return isWithinTimeWindow && isNotFromMe;
+        return isAfterStartDate && isNotFromUser;
       });
       
-      console.log(`Found ${messages.length} messages in the last ${days} days`);
+      console.log(`Found ${filteredMessages.length} messages within the last ${days} days`);
       
-      if (messages.length > 0) {
-        console.log(`First message timestamp: ${new Date(messages[0].timestamp).toISOString()}`);
-        console.log(`Sample message body: ${messages[0].body ? messages[0].body.substring(0, 50) : 'No body'}`);
+      if (filteredMessages.length > 0 && options.verbose) {
+        const firstMsg = filteredMessages[0];
+        const firstDate = new Date(firstMsg.timestamp * 1000);
+        console.log(`First message timestamp: ${firstDate.toISOString()}`);
+        console.log(`Sample message: ${firstMsg.body ? firstMsg.body.substring(0, 50) : 'No body'}`);
       }
       
       // Convert messages to listings
-      const groupListings = messages.map(msg => {
-        // Ensure timestamp is in milliseconds
-        const msgTime = typeof msg.timestamp === 'number' ? 
-          (msg.timestamp > 9999999999 ? msg.timestamp : msg.timestamp * 1000) : 0;
-          
-        // Create a proper date object
-        const messageDate = new Date(msgTime);
-        
-        // Basic listing structure
+      const groupListings = filteredMessages.map(msg => {
+        // Create a listing object
         const listing = {
           whatsappGroup: groupName,
-          date: messageDate.toISOString(), // Use the correctly formatted timestamp
-          sender: msg.author || msg.from,
+          date: new Date(msg.timestamp * 1000).toISOString(),
+          sender: msg.author || 'Unknown',
           text: msg.body || '',
           images: []
         };

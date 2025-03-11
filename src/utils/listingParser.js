@@ -5,6 +5,7 @@
  * - Extracting listings from WhatsApp chat exports
  * - Parsing listing details (price, condition, collection areas)
  * - Detecting ISO (In Search Of) listings
+ * - Extracting phone numbers from listing text
  */
 
 const { WHATSAPP_GROUPS } = require('./imageHandler');
@@ -243,21 +244,58 @@ function extractCollectionAreas(text) {
  * Check if a listing is an "In Search Of" (ISO) post
  * 
  * @param {string} text - The listing text
+ * @param {Object} options - Additional options
+ * @param {boolean} options.noPriceAsISO - Whether to consider listings without a price as ISO
+ * @param {number} options.price - The price of the listing, if known
  * @returns {boolean} - Whether the listing is an ISO post
  */
-function isISOPost(text) {
+function isISOPost(text, options = {}) {
   if (!text) return false;
   
-  const textLower = text.toLowerCase();
+  const textLower = text.toLowerCase().trim();
+  const { noPriceAsISO = false, price = null } = options;
   
-  // Common ISO indicators
+  // If the price is known and there's no price, consider it an ISO (if option is enabled)
+  if (noPriceAsISO && price === null) {
+    // But only if it doesn't explicitly mention 'selling', 'for sale', or include a price indicator
+    if (!textLower.includes('selling') && 
+        !textLower.includes('for sale') && 
+        !textLower.includes('rand') && 
+        !textLower.includes('price') && 
+        !/r\s*\d+/.test(textLower) && // R followed by numbers
+        !/\d+\s*r/.test(textLower)) { // numbers followed by R
+      return true;
+    }
+  }
+  
+  // Common ISO indicators with more flexible patterns
   const isoPatterns = [
     /\biso\b/i,  // ISO as a standalone word
     /\bin search of\b/i,  // "in search of"
     /\blooking for\b/i,  // "looking for"
     /\bwanted\b/i,  // "wanted"
-    /\banyone (?:have|selling|got)\b/i,  // "anyone have/selling/got"
-    /\banybody (?:have|selling|got)\b/i  // "anybody have/selling/got"
+    /\bneeding\b/i,  // "needing"
+    /\banyone.*\bhave\b/i,  // "anyone... have" - more flexible pattern
+    /\banyone.*\bgot\b/i,   // "anyone... got" - more flexible pattern
+    /\banyone.*selling/i,   // "anyone... selling" - more flexible pattern
+    /\banybody.*\bhave\b/i, // "anybody... have" - more flexible pattern
+    /\banybody.*\bgot\b/i,  // "anybody... got" - more flexible pattern
+    /\bdoes anyone\b/i,     // "does anyone"
+    /\bcan anyone\b/i,      // "can anyone"
+    /\bwhere can i\b/i,     // "where can I"
+    /\banyone know where\b/i, // "anyone know where"
+    /\blooking to\b/i,      // "looking to"
+    /\bwant to buy\b/i,     // "want to buy"
+    /\bneeded\b/i,          // "needed"
+    /\banyone with\b/i,     // "anyone with"
+    /\bhelp find\b/i,       // "help find"
+    /\bneed urgent\b/i,     // "need urgent"
+    /\bsearch\b/i,          // "search"
+    /^any /i,               // Starting with "Any"
+    /^hello.*anyone/i,      // Starting with "Hello" followed by "anyone"
+    /^hi.*anyone/i,         // Starting with "Hi" followed by "anyone"
+    /\bcan someone\b/i,     // "can someone"
+    /\?$/                   // Ends with a question mark
   ];
   
   for (const pattern of isoPatterns) {
@@ -266,23 +304,41 @@ function isISOPost(text) {
     }
   }
   
+  // Check for question-style posts (likely asking for items)
+  const questionIndicators = textLower.split(' ').filter(word => 
+    ['who', 'what', 'where', 'when', 'why', 'how', 'does', 'is', 'are', 'can', 'could', 'would', 'should'].includes(word)
+  );
+  
+  // If it has multiple question words and ends with a question mark, it's likely an ISO
+  if (questionIndicators.length >= 1 && textLower.includes('?')) {
+    return true;
+  }
+  
   return false;
 }
 
 /**
- * Process a raw listing extracted from WhatsApp
+ * Process a raw listing to extract additional information
  * 
  * @param {Object} rawListing - The raw listing object
+ * @param {Object} options - Additional options
+ * @param {boolean} options.noPriceAsISO - Whether to consider listings without a price as ISO
  * @returns {Object} - The processed listing with additional fields
  */
-function processListing(rawListing) {
+function processListing(rawListing, options = {}) {
   const { text } = rawListing;
+  const { noPriceAsISO = true } = options; // Default to true - treat no price as ISO
   
   // Extract additional information from the listing text
   const price = extractPrice(text);
   const condition = extractCondition(text);
   const collectionAreas = extractCollectionAreas(text);
-  const isISO = isISOPost(text);
+  
+  // Pass price information to isISOPost
+  const isISO = isISOPost(text, { 
+    noPriceAsISO, 
+    price 
+  });
   
   // Return the processed listing with additional fields
   return {
@@ -294,11 +350,62 @@ function processListing(rawListing) {
   };
 }
 
+/**
+ * Extract phone number from listing text
+ * 
+ * @param {string} text - The listing text to extract phone number from
+ * @returns {string|null} - The extracted phone number or null if not found
+ */
+function extractPhoneNumber(text) {
+  if (!text) return null;
+  
+  // Common South African phone number patterns
+  const patterns = [
+    // 10-digit numbers with optional spaces, dashes, or dots
+    /(?<!\d)0\d{2}[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g,
+    
+    // Numbers with country code +27
+    /(?<!\d)\+27[\s.-]?\d{2}[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g,
+    
+    // Numbers with country code 27
+    /(?<!\d)27[\s.-]?\d{2}[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g,
+    
+    // WhatsApp format with @ symbol
+    /(?<!\d)27\d{9}@(?:s\.whatsapp\.net|c\.us)(?!\d)/g
+  ];
+  
+  for (const pattern of patterns) {
+    const matches = text.match(pattern);
+    if (matches && matches.length > 0) {
+      // Clean up the phone number (remove spaces, dashes, dots)
+      let phoneNumber = matches[0].replace(/[\s.-]/g, '');
+      
+      // Remove WhatsApp suffix if present
+      phoneNumber = phoneNumber.replace(/@(?:s\.whatsapp\.net|c\.us)$/, '');
+      
+      // Normalize to start with 0 if it starts with 27
+      if (phoneNumber.startsWith('27') && phoneNumber.length === 11) {
+        phoneNumber = '0' + phoneNumber.substring(2);
+      }
+      
+      // Normalize to start with 0 if it starts with +27
+      if (phoneNumber.startsWith('+27') && phoneNumber.length === 12) {
+        phoneNumber = '0' + phoneNumber.substring(3);
+      }
+      
+      return phoneNumber;
+    }
+  }
+  
+  return null;
+}
+
 module.exports = {
   extractListings,
   extractPrice,
   extractCondition,
   extractCollectionAreas,
   isISOPost,
-  processListing
+  processListing,
+  extractPhoneNumber
 }; 
