@@ -21,13 +21,16 @@ async function addListing(listing) {
   try {
     const supabase = getAdminClient();
     
-    // Extract phone number from the listing text
+    // Extract phone number from the listing text if needed
     const phoneNumber = extractPhoneNumber(listing.text);
+    
+    // Format date as ISO string for PostgreSQL compatibility
+    const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
     
     // Format the listing for the database
     const dbListing = {
       whatsapp_group: listing.whatsappGroup,
-      date: listing.date,
+      date: dateString,
       sender: listing.sender,
       text: listing.text,
       images: listing.images || [],
@@ -36,9 +39,15 @@ async function addListing(listing) {
       collection_areas: listing.collectionAreas || [],
       date_added: new Date().toISOString(),
       is_iso: listing.isISO || false,
-      category: listing.category || 'Uncategorised',
-      phone_number: phoneNumber
+      category: listing.category || 'Uncategorised'
     };
+    
+    // Only add phone_number if the column exists in the database schema
+    // This can be determined by checking the actual database structure
+    // For now, we'll comment this out to avoid errors
+    // if (phoneNumber) {
+    //   dbListing.phone_number = phoneNumber;
+    // }
     
     // Add the listing to the database
     const { data, error } = await supabase
@@ -163,18 +172,29 @@ async function updateListing(id, updates) {
  * Check if a listing already exists in the database
  * 
  * @param {Object} listing - The listing to check
- * @returns {Promise<boolean>} - Whether the listing already exists
+ * @param {boolean} verbose - Whether to show detailed output
+ * @returns {Promise<boolean>} - Whether the listing exists
  */
-async function listingExists(listing) {
+async function listingExists(listing, verbose = false) {
   try {
     const supabase = getAdminClient();
     
-    // Check if a listing with the same date, sender, and text exists
+    if (verbose) {
+      console.log(`Checking if listing exists: ${listing.title || 'Untitled'}`);
+      console.log(`- Group: ${listing.whatsappGroup}`);
+      console.log(`- Date: ${listing.date}`);
+      console.log(`- Sender: ${listing.sender}`);
+    }
+    
+    // Format date as ISO string for PostgreSQL compatibility
+    const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
+    
+    // Check if a listing with the same date, sender, and whatsapp group exists
     const { data, error } = await supabase
       .from(TABLES.LISTINGS)
-      .select('id')
+      .select('id, title, date, text')
       .eq('whatsapp_group', listing.whatsappGroup)
-      .eq('date', listing.date)
+      .eq('date', dateString)
       .eq('sender', listing.sender)
       .limit(1);
     
@@ -182,11 +202,85 @@ async function listingExists(listing) {
       throw new Error(`Error checking if listing exists: ${error.message}`);
     }
     
-    return data.length > 0;
+    const exists = data.length > 0;
+    
+    if (exists && verbose) {
+      console.log('Found existing listing:');
+      console.log(`- ID: ${data[0].id}`);
+      console.log(`- Title: ${data[0].title}`);
+      console.log(`- Date: ${new Date(data[0].date).toISOString()}`);
+      
+      // Calculate text similarity if both have text
+      if (listing.text && data[0].text) {
+        const similarity = calculateTextSimilarity(listing.text, data[0].text);
+        console.log(`- Text similarity: ${Math.round(similarity * 100)}%`);
+      }
+    }
+    
+    return exists;
   } catch (error) {
     console.error('Error in listingExists:', error);
     throw error;
   }
+}
+
+/**
+ * Calculate text similarity between two strings (simple implementation)
+ * 
+ * @param {string} text1 - First text
+ * @param {string} text2 - Second text
+ * @returns {number} - Similarity score between 0 and 1
+ */
+function calculateTextSimilarity(text1, text2) {
+  // Convert to lowercase and remove common punctuation
+  const normalize = text => text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '').trim();
+  
+  const normalizedText1 = normalize(text1);
+  const normalizedText2 = normalize(text2);
+  
+  // Use Levenshtein distance for similarity
+  const distance = levenshteinDistance(normalizedText1, normalizedText2);
+  const maxLength = Math.max(normalizedText1.length, normalizedText2.length);
+  
+  // Return similarity score (1 - normalized distance)
+  return maxLength > 0 ? 1 - (distance / maxLength) : 1;
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ * 
+ * @param {string} a - First string
+ * @param {string} b - Second string
+ * @returns {number} - Levenshtein distance
+ */
+function levenshteinDistance(a, b) {
+  const matrix = [];
+  
+  // Initialize matrix
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  // Fill in the matrix
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  
+  return matrix[b.length][a.length];
 }
 
 /**

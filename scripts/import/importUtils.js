@@ -14,44 +14,44 @@ const { createClient } = require('@supabase/supabase-js');
 const WHATSAPP_GROUPS = [
   {
     name: 'Nifty Thrifty Modern Cloth Nappies',
-    dataDir: 'nifty-thrifty-modern-cloth-nappies',
+    dataDir: 'tmp/waha-images/nifty-thrifty-modern-cloth-nappies',
     chatFile: '_chat.txt',
     chatId: '120363139582792913@g.us'
   },
   {
     name: 'Nifty Thrifty 0-1 year (2)',
-    dataDir: 'nifty-thrifty-0-1-years',
+    dataDir: 'tmp/waha-images/nifty-thrifty-0-1-years',
     chatFile: '_chat.txt',
     chatId: '120363190438741302@g.us'
   },
   {
     name: 'Nifty Thrifty Bumps & Boobs',
-    dataDir: 'nifty-thrifty-bumps-and-boobs',
+    dataDir: 'tmp/waha-images/nifty-thrifty-bumps-and-boobs',
     chatFile: '_chat.txt',
     chatId: '120363068687931519@g.us'
   },
   {
     name: 'Nifty Thrifty 0-1 year (1)',
-    dataDir: 'nifty-thrifty-0-1-years',
+    dataDir: 'tmp/waha-images/nifty-thrifty-0-1-years',
     chatFile: '_chat2.txt',
     chatId: '27787894429-1623257234@g.us'
   },
   {
     name: 'Nifty Thrifty 1-3 years',
-    dataDir: 'nifty-thrifty-1-3-years',
+    dataDir: 'tmp/waha-images/nifty-thrifty-1-3-years',
     chatFile: '_chat.txt',
     chatId: '120363172946506359@g.us'
   },
   {
     name: 'Nifty Thrifty Kids (3-8 years) 2',
-    dataDir: 'nifty-thrifty-kids-3-8-years',
+    dataDir: 'tmp/waha-images/nifty-thrifty-kids-3-8-years',
     chatFile: '_chat.txt',
     chatId: '120363315487735378@g.us'
   }
 ];
 
 // WAHA API Configuration
-const WAHA_BASE_URL = 'http://localhost:3001/api';
+const WAHA_BASE_URL = 'http://localhost:3001';
 const WAHA_SESSION = 'default';
 
 /**
@@ -80,11 +80,18 @@ function getGroupByName(groupName) {
  */
 async function checkWahaSessionStatus() {
   try {
-    const response = await axios.get(`${WAHA_BASE_URL}/sessions/${WAHA_SESSION}`);
+    const response = await axios.get(`${WAHA_BASE_URL}/api/sessions/default`);
+    
     // Check if session is working and connected
     if (response.data && response.data.status === 'WORKING' && 
         response.data.engine && response.data.engine.state === 'CONNECTED') {
       return { authenticated: true, exists: true };
+    } else if (response.data && response.data.status === 'STARTING') {
+      return { 
+        authenticated: false, 
+        exists: true,
+        message: 'Session is starting but not yet authenticated'
+      };
     } else {
       return { 
         authenticated: false, 
@@ -100,83 +107,69 @@ async function checkWahaSessionStatus() {
       // Session exists but might not be authenticated
       return { 
         authenticated: false, 
-        exists: true,
-        message: error.response.data.message || 'Session exists but status unknown'
+        exists: true, 
+        message: 'Session exists but is not authenticated'
       };
+    } else {
+      // Other error
+      console.error('Error checking WAHA session status:', 
+                    error.response ? error.response.data : error.message);
+      throw error;
     }
-    throw error;
   }
 }
 
 /**
  * Start a new WAHA session
- * @returns {Promise<string|null>} QR code as string or null if no QR needed
+ * @returns {Promise<string|null>} QR code URL or null if no QR needed
  */
 async function startWahaSession() {
   try {
-    // First check if session already exists
-    const status = await checkWahaSessionStatus();
-    if (status.exists) {
-      console.log('Session already exists. Checking authentication status...');
-      
-      if (status.authenticated) {
-        console.log('✅ Session is already authenticated.');
-        return null; // No QR needed
-      } else {
-        throw new Error('Session exists but is not authenticated. You may need to restart WAHA.');
-      }
-    }
+    // Start the session
+    const response = await axios.post(`${WAHA_BASE_URL}/api/sessions/default/start`);
     
-    // Start a new session
-    const response = await axios.post(`${WAHA_BASE_URL}/sessions/start`, {
-      name: WAHA_SESSION
-    });
+    // Check if we need to scan a QR code
     if (response.data && response.data.qr) {
       return response.data.qr;
-    } else {
-      console.log('No QR code returned, but session may have started.');
-      return null;
     }
+    
+    return null;
   } catch (error) {
-    if (error.response && error.response.status === 422 && 
-        error.response.data && error.response.data.message) {
-      // Session already exists or other error
-      console.log(`Server response: ${error.response.data.message}`);
-      
-      if (error.response.data.message.includes('already started')) {
-        console.log('Session already exists. Checking authentication status...');
-        
-        // Check if the session is authenticated
-        const sessionStatus = await checkWahaSessionStatus();
-        if (sessionStatus.authenticated) {
-          console.log('✅ Session is authenticated and ready to use.');
-          return null; // Already authenticated, no QR needed
-        } else {
-          throw new Error('Session exists but is not authenticated. You may need to restart WAHA.');
-        }
-      } else {
-        throw new Error(`WAHA error: ${error.response.data.message}`);
-      }
-    }
+    console.error('Error starting WAHA session:', 
+                error.response ? error.response.data : error.message);
+    throw error;
   }
 }
 
 /**
- * Wait for the WAHA session to be authenticated
- * @returns {Promise<boolean>} True if authenticated, throws error if timeout
+ * Wait for WAHA session to be authenticated
+ * @param {number} maxAttempts - Maximum number of attempts
+ * @param {number} interval - Interval between attempts in milliseconds
+ * @returns {Promise<boolean>} Whether authentication succeeded
  */
-async function waitForWahaAuthentication() {
-  const maxAttempts = 30;
+async function waitForWahaAuthentication(maxAttempts = 20, interval = 3000) {
+  console.log(`Waiting for WhatsApp authentication (max ${maxAttempts} attempts, ${interval/1000}s interval)...`);
+  
   for (let i = 0; i < maxAttempts; i++) {
-    const status = await checkWahaSessionStatus();
-    if (status.authenticated) {
-      return true;
+    try {
+      // Wait for the specified interval
+      await new Promise(resolve => setTimeout(resolve, interval));
+      
+      // Check session status
+      const status = await checkWahaSessionStatus();
+      
+      if (status.authenticated) {
+        console.log('✅ WhatsApp session authenticated!');
+        return true;
+      }
+      
+      console.log(`Waiting for authentication... Attempt ${i + 1}/${maxAttempts}`);
+    } catch (error) {
+      console.error('Error checking authentication status:', error.message);
     }
-    // Wait 5 seconds before checking again
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    process.stdout.write('.');
   }
-  throw new Error('Authentication timeout. Please try again.');
+  
+  throw new Error(`Authentication timed out after ${maxAttempts} attempts`);
 }
 
 /**

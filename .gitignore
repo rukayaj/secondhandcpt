@@ -58,5 +58,9 @@ next-env.d.ts
 !tsconfig.json
 !jest.config.js
 !tailwind.config.js
-!postcss.config.js
-!next.config.js 
+!next.config.js
+
+# WhatsApp data
+/tmp/
+/tmp/waha-images/
+/tmp/metadata.json 
