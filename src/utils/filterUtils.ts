@@ -157,9 +157,17 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
     // Create a copy of filters without the category
     const { category, ...otherFilters } = filters;
     
+    // Ensure includeISO is set to false by default to exclude ISO posts from counts
+    // This makes the counts match what's displayed on the listings page
+    const filtersWithoutISO = {
+      ...otherFilters,
+      includeISO: filters.includeISO === true
+    };
+    
     // If we have other filters, we need to filter listings first
     if (Object.keys(otherFilters).length > 0) {
-      const filteredListings = await filterListings(otherFilters);
+      // Use the filters that exclude ISO posts
+      const filteredListings = await filterListings(filtersWithoutISO);
       
       // Count occurrences of each category
       const categoryCounts: Record<string, number> = {};
@@ -191,11 +199,43 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
       const { supabase } = await import('./supabase');
       
       try {
-        // Try to use the RPC function first
+        // Try to use the RPC function first, but modify query to exclude ISO posts
+        // NOTE: If your RPC function doesn't have a parameter for excluding ISO posts,
+        // you'll need to use the fallback method below
         const { data, error } = await supabase.rpc('get_category_counts');
         
         if (!error && data) {
-          // Process the results to match our defined categories
+          // We need to filter the results manually to exclude ISO posts
+          // Get all non-ISO listings to calculate correct counts
+          const { data: nonIsoListings, error: listingsError } = await supabase
+            .from('listings')
+            .select('category')
+            .eq('is_iso', false);
+            
+          if (listingsError) {
+            console.error('Error fetching non-ISO listings:', listingsError);
+            // Continue with potentially incorrect counts from RPC
+          } else {
+            // Count occurrences of each category in non-ISO listings
+            const manualCategoryCounts: Record<string, number> = {};
+            for (const listing of nonIsoListings) {
+              const cat = listing.category || 'Other';
+              manualCategoryCounts[cat] = (manualCategoryCounts[cat] || 0) + 1;
+            }
+            
+            // Process the results to match our defined categories
+            return categoryNames
+              .map(name => ({ name, count: manualCategoryCounts[name] || 0 }))
+              .filter(item => item.name !== 'Other' || (manualCategoryCounts[item.name] && manualCategoryCounts[item.name] > 0))
+              .sort((a, b) => {
+                // Sort by predefined order, with Other at the end
+                if (a.name === 'Other') return 1;
+                if (b.name === 'Other') return -1;
+                return b.count - a.count; // Then by count
+              });
+          }
+          
+          // Process the results to match our defined categories (if we didn't do the manual count above)
           const dbCategories = data.reduce((acc: Record<string, number>, { name, count }: { name: string; count: number }) => {
             acc[name] = count;
             return acc;
@@ -219,10 +259,11 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
         console.warn('Error using get_category_counts function:', err);
       }
       
-      // Fallback: Query the database and count categories manually
+      // Fallback: Query the database and count categories manually, excluding ISO posts
       const { data: result, error } = await supabase
         .from('listings')
-        .select('category');
+        .select('category')
+        .eq('is_iso', false); // Only include non-ISO posts
       
       if (error) {
         console.error('Error fetching categories:', error);
@@ -237,16 +278,16 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
         categoryCounts[cat] = 0;
       }
       
-      // Count database categories
-      for (const record of result) {
-        const cat = record.category || 'Other';
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      // Count non-ISO listings by category
+      for (const listing of result) {
+        const category = listing.category || 'Other';
+        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
       }
       
-      // Convert to required format with proper ordering
+      // Convert to required format and sort
       return categoryNames
         .map(name => ({ name, count: categoryCounts[name] || 0 }))
-        .filter(item => item.name !== 'Other' || item.count > 0) // Only include Other if it has counts
+        .filter(item => item.count > 0 || (item.name !== 'Other'))
         .sort((a, b) => {
           // Sort by predefined order, with Other at the end
           if (a.name === 'Other') return 1;
@@ -255,7 +296,7 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
         });
     }
   } catch (error) {
-    console.error('Unexpected error in getCategoriesWithCounts:', error);
+    console.error('Error in getCategoriesWithCounts:', error);
     return [];
   }
 }

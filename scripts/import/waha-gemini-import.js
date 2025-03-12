@@ -34,6 +34,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Import utility modules
 const { getLastImportDate, updateLastImportDate } = require('../../src/utils/metadataUtils');
 const { listingExists, addListing, getLatestMessageTimestampsByGroup, deleteExpiredListings } = require('../../src/utils/dbUtils');
+const { extractPhoneNumber } = require('../../src/utils/listingParser');
 
 // Import our consolidated utility modules
 const { 
@@ -116,7 +117,18 @@ async function groupRelatedMessages(messages, timeThresholdHours = 72) {
   const senderGroups = {};
   
   messages.forEach(message => {
-    const key = `${message.sender || 'unknown'}_${message.whatsappGroup}`;
+    // Get the proper sender ID from the message author field if available
+    // This is critical because the author field contains the actual phone number
+    let sender = message.sender || 'unknown';
+    
+    // Extract from _data.author field if available, which is more reliable than the top-level sender field
+    if (message._data && message._data.author && message._data.author._serialized) {
+      sender = message._data.author._serialized;
+      // Also set it on the message object for future reference
+      message.sender = sender;
+    }
+    
+    const key = `${sender}_${message.whatsappGroup}`;
     if (!senderGroups[key]) {
       senderGroups[key] = [];
     }
@@ -395,6 +407,15 @@ IMPORTANT RULES:
 - If there are no valid product listings at all, return an empty array [].
 - A valid listing must at minimum have a title and indicate if it's for sale or ISO.
 
+IMPORTANT CATEGORIZATION GUIDELINES:
+1. Users often are selling books in the "Sense" series (Baby Sense, Weaning Sense, Feeding Sense, Toddler Sense, Sleep Sense, etc.) should always be categorized as "Books"
+2. Distinguish between regular "Clothing" and "Maternity Clothing" based on context
+3. Footwear (shoes, sandals, boots, etc.) should be categorized as "Footwear" not "Clothing"
+4. "Gear" includes strollers, car seats, carriers, high chairs, playpens, etc.
+5. "Feeding" includes bottles, breast pumps, sterilizers, baby food makers, etc.
+6. "Bath" includes tubs, towels, bath toys, bath safety items, etc.
+7. Default to "Uncategorised" only when no other category clearly applies
+
 User's WhatsApp Messages:
 ${messageData.body}
 
@@ -412,7 +433,7 @@ Return an ARRAY of listings, where each listing has these fields:
   "is_iso": boolean (true if this is an 'In Search Of' post, not a sales listing),
   "is_sold": boolean (true if the item has been marked as sold/taken),
   "size": "Size if mentioned",
-  "category": "Category of item (Furniture, Clothing, Toys, Electronics, Kids Accessories, Baby Essentials, Other)"
+  "category": "Category of item from the following list: Clothing, Maternity Clothing, Footwear, Toys, Furniture, Books, Feeding, Bath, Safety, Bedding, Diapering, Health, Swimming, Gear, Accessories, Uncategorised"
 }
 
 EXAMPLES:
@@ -633,6 +654,7 @@ async function syncExpiredListings(options = {}) {
   const stats = {
     groupsProcessed: 0,
     totalListingsDeleted: 0,
+    totalImagesRemoved: 0,
     errors: 0
   };
   
@@ -654,22 +676,23 @@ async function syncExpiredListings(options = {}) {
       }
       
       // Delete listings older than the oldest message
-      const { deleted, error, expiredListings } = await deleteExpiredListings(group.name, oldestTimestamp);
+      const { deleted, imagesRemoved, error, expiredListings } = await deleteExpiredListings(group.name, oldestTimestamp);
       
       if (error) {
         console.error(`Error syncing expired listings for "${group.name}": ${error.message}`);
         stats.errors++;
       } else {
         if (options.verbose && deleted > 0 && expiredListings) {
-          console.log(`Deleted ${deleted} expired listings from "${group.name}":`);
+          console.log(`Deleted ${deleted} expired listings and ${imagesRemoved || 0} images from "${group.name}":`);
           expiredListings.forEach(listing => {
             console.log(`- "${listing.title}" (${listing.date})`);
           });
         } else {
-          console.log(`Deleted ${deleted} expired listings from "${group.name}"`);
+          console.log(`Deleted ${deleted} expired listings and ${imagesRemoved || 0} images from "${group.name}"`);
         }
         
         stats.totalListingsDeleted += deleted;
+        stats.totalImagesRemoved += (imagesRemoved || 0);
       }
       
       stats.groupsProcessed++;
@@ -682,6 +705,7 @@ async function syncExpiredListings(options = {}) {
   console.log('Sync complete:');
   console.log(`- Groups processed: ${stats.groupsProcessed}`);
   console.log(`- Total listings deleted: ${stats.totalListingsDeleted}`);
+  console.log(`- Total images removed: ${stats.totalImagesRemoved}`);
   console.log(`- Errors: ${stats.errors}`);
   
   return stats;
@@ -955,9 +979,14 @@ async function processImages(listings, verbose = false) {
         const localPath = path.join(tmpDir, `image_${imageId}.jpg`);
         await downloadImageFromWaha(imageUrl, localPath);
         
-        // Upload to Supabase
-        const imagePath = `listings/${listing.messageId || j}_${i}_${imageId}.jpg`;
-        await uploadImageToSupabase(localPath, imagePath);
+        // Create a structured path for the image within the listings folder
+        // Use format: listings/groupName_messageId_index_uniqueId.jpg
+        // This is more manageable and consistent than the previous approach
+        const groupNameForPath = listing.whatsappGroup.replace(/\s+/g, '_').replace(/[^\w-]/g, '');
+        const imagePath = `listings/${groupNameForPath}_${listing.messageId || j}_${i}_${imageId}.jpg`;
+        
+        // Upload with direct path to avoid nesting issues
+        await uploadImageToSupabase(localPath, imagePath, true);
         
         // Add the image path to the listing's images
         supabaseImagePaths.push(imagePath);
@@ -1096,10 +1125,53 @@ async function addNewListings(listings, verbose = false) {
         messageCount: listing.messageCount || 1,
         // Add sold status and date
         isSold: listing.is_sold || false,
-        soldDate: listing.soldDate || null,
-        // Only add phone number if it's available
-        ...(listing.phone_number && { phone_number: listing.phone_number })
+        soldDate: listing.soldDate || null
       };
+      
+      // Extract phone number from the message text
+      let phoneNumber = null;
+      try {
+        phoneNumber = extractPhoneNumber(listing.rawText);
+      } catch (error) {
+        console.warn(`Error extracting phone number from text: ${error.message}`);
+      }
+      
+      // If no phone number found in text, try to extract from sender
+      if (!phoneNumber && listing.sender) {
+        // Sender is often in format "XXXXXXXXXXXX@c.us"
+        const senderMatch = listing.sender.match(/(\d+)@c\.us$/);
+        if (senderMatch && senderMatch[1]) {
+          // Normalize to ensure it starts with the proper format for South Africa
+          // Convert WhatsApp format (27XXXXXXXXXX) to local format (0XXXXXXXXX)
+          phoneNumber = senderMatch[1];
+          if (phoneNumber.startsWith('27') && phoneNumber.length >= 11) {
+            phoneNumber = '0' + phoneNumber.substring(2);
+          }
+        }
+      }
+      
+      // Always set both sender and phone_number in the database
+      // This ensures we have the original WhatsApp ID in sender
+      // and the formatted phone number in phone_number
+      if (listing.sender) {
+        dbListing.sender = listing.sender;
+      }
+      
+      // Add phone number to the listing if available
+      if (phoneNumber) {
+        dbListing.phone_number = phoneNumber;
+      } else if (listing.sender) {
+        // If we still don't have a phone number but do have a sender
+        // Try one more time to extract it with a more permissive pattern
+        const lastChanceSenderMatch = listing.sender.match(/(\d+)/);
+        if (lastChanceSenderMatch && lastChanceSenderMatch[1]) {
+          phoneNumber = lastChanceSenderMatch[1];
+          if (phoneNumber.startsWith('27') && phoneNumber.length >= 11) {
+            phoneNumber = '0' + phoneNumber.substring(2);
+            dbListing.phone_number = phoneNumber;
+          }
+        }
+      }
       
       // Add to database
       const id = await addListing(dbListing);

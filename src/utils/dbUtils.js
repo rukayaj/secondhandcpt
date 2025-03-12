@@ -22,7 +22,21 @@ async function addListing(listing) {
     const supabase = getAdminClient();
     
     // Extract phone number from the listing text if needed
-    const phoneNumber = extractPhoneNumber(listing.text);
+    let phoneNumber = extractPhoneNumber(listing.text);
+    
+    // If no phone number found in text, try to extract from sender
+    if (!phoneNumber && listing.sender) {
+      // Sender is often in format "XXXXXXXXXXXX@c.us"
+      const senderMatch = listing.sender.match(/(\d+)@c\.us$/);
+      if (senderMatch && senderMatch[1]) {
+        // Normalize to ensure it starts with the proper format for South Africa
+        // Convert WhatsApp format (27XXXXXXXXXX) to local format (0XXXXXXXXX)
+        phoneNumber = senderMatch[1];
+        if (phoneNumber.startsWith('27') && phoneNumber.length >= 11) {
+          phoneNumber = '0' + phoneNumber.substring(2);
+        }
+      }
+    }
     
     // Format date as ISO string for PostgreSQL compatibility
     const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
@@ -52,19 +66,21 @@ async function addListing(listing) {
       message_count: listing.messageCount || 1
     };
     
-    // Only add phone_number if the column exists in the database schema
-    // This can be determined by checking the actual database structure
-    // For now, we'll comment this out to avoid errors
-    // if (phoneNumber) {
-    //   dbListing.phone_number = phoneNumber;
-    // }
+    // The phone_number column now exists in the database, so we can add it
+    // Add phone_number if available
+    if (phoneNumber) {
+      dbListing.phone_number = phoneNumber;
+    }
     
     // Add the listing to the database
-    const { data, error } = await supabase
+    const result = await supabase
       .from(TABLES.LISTINGS)
       .insert(dbListing)
       .select()
       .single();
+    
+    const data = result.data;
+    const error = result.error;
     
     if (error) {
       throw new Error(`Error adding listing: ${error.message}`);
@@ -190,8 +206,7 @@ async function updateListing(id, updates) {
 
 /**
  * Check if a listing already exists in the database
- * 
- * @param {Object} listing - The listing to check
+ * @param {Object} listing - The listing object to check
  * @param {boolean} verbose - Whether to show detailed output
  * @returns {Promise<boolean>} - Whether the listing exists
  */
@@ -209,35 +224,161 @@ async function listingExists(listing, verbose = false) {
     // Format date as ISO string for PostgreSQL compatibility
     const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
     
-    // Check if a listing with the same date, sender, and whatsapp group exists
-    const { data, error } = await supabase
-      .from(TABLES.LISTINGS)
-      .select('id, title, date, text')
-      .eq('whatsapp_group', listing.whatsappGroup)
-      .eq('date', dateString)
-      .eq('sender', listing.sender)
-      .limit(1);
-    
-    if (error) {
-      throw new Error(`Error checking if listing exists: ${error.message}`);
+    // First check: exact match on date, sender, and WhatsApp group
+    let exactMatches;
+    try {
+      // Try with phone_number field
+      const { data, error } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('id, title, date, text')
+        .eq('whatsapp_group', listing.whatsappGroup)
+        .eq('date', dateString)
+        .eq('sender', listing.sender)
+        .limit(1);
+      
+      if (error) {
+        throw error;
+      }
+      
+      exactMatches = data;
+    } catch (error) {
+      console.error(`Error checking for exact listing match: ${error.message}`);
+      return false;
     }
     
-    const exists = data.length > 0;
+    if (exactMatches && exactMatches.length > 0) {
+      if (verbose) {
+        console.log('Found existing listing (exact match):');
+        console.log(`- ID: ${exactMatches[0].id}`);
+        console.log(`- Title: ${exactMatches[0].title}`);
+      }
+      return true;
+    }
     
-    if (exists && verbose) {
-      console.log('Found existing listing:');
-      console.log(`- ID: ${data[0].id}`);
-      console.log(`- Title: ${data[0].title}`);
-      console.log(`- Date: ${new Date(data[0].date).toISOString()}`);
-      
-      // Calculate text similarity if both have text
-      if (listing.text && data[0].text) {
-        const similarity = calculateTextSimilarity(listing.text, data[0].text);
-        console.log(`- Text similarity: ${Math.round(similarity * 100)}%`);
+    // Second check: look for duplicates by phone number (if available)
+    // Try to get phone number from listing or from sender
+    let phoneNumber = listing.phoneNumber;
+    
+    // If no phone number provided, try to extract from sender
+    if (!phoneNumber && listing.sender) {
+      const senderMatch = listing.sender.match(/(\d+)@c\.us$/);
+      if (senderMatch && senderMatch[1]) {
+        phoneNumber = senderMatch[1];
+        if (phoneNumber.startsWith('27') && phoneNumber.length >= 11) {
+          phoneNumber = '0' + phoneNumber.substring(2);
+        }
       }
     }
     
-    return exists;
+    if (phoneNumber) {
+      try {
+        const { data: phoneMatches, error: phoneError } = await supabase
+          .from(TABLES.LISTINGS)
+          .select('id, title, date, text, phone_number')
+          .eq('phone_number', phoneNumber)
+          .order('date', { ascending: false })
+          .limit(5); // Check the most recent ones with this phone number
+        
+        if (phoneError) {
+          // If there's an error related to phone_number, skip this check
+          if (phoneError.message && phoneError.message.includes('phone_number')) {
+            if (verbose) {
+              console.log('Skipping phone number check - column not available');
+            }
+          } else {
+            console.error(`Error checking for phone number match: ${phoneError.message}`);
+          }
+        } else if (phoneMatches && phoneMatches.length > 0) {
+          // We found listings with the same phone number, check if they're similar
+          for (const match of phoneMatches) {
+            // Skip if it's too old (more than 30 days)
+            const matchDate = new Date(match.date);
+            const listingDate = new Date(dateString);
+            const daysDifference = Math.abs((listingDate - matchDate) / (1000 * 60 * 60 * 24));
+            
+            if (daysDifference > 30) continue;
+            
+            // Calculate text similarity if both have text
+            if (listing.text && match.text) {
+              const similarity = calculateTextSimilarity(listing.text, match.text);
+              
+              if (verbose) {
+                console.log(`Checking similar listing with same phone number:`);
+                console.log(`- ID: ${match.id}`);
+                console.log(`- Title: ${match.title}`);
+                console.log(`- Text similarity: ${Math.round(similarity * 100)}%`);
+              }
+              
+              // If the similarity is high, consider it a duplicate (70% or higher)
+              if (similarity >= 0.7) {
+                if (verbose) {
+                  console.log(`Found duplicate listing by phone number with high text similarity: ${match.id}`);
+                }
+                return true;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // If the error is related to phone_number, skip this check
+        if (error.message && error.message.includes('phone_number')) {
+          if (verbose) {
+            console.log('Skipping phone number check - column not available');
+          }
+        } else {
+          console.error(`Error in phone number check: ${error.message}`);
+        }
+      }
+    }
+    
+    // Third check: look for similar listings by text content
+    try {
+      // Get recent listings from the same group
+      const { data: recentListings, error: recentError } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('id, title, date, text')
+        .eq('whatsapp_group', listing.whatsappGroup)
+        .order('date', { ascending: false })
+        .limit(20); // Check the most recent ones in this group
+      
+      if (recentError) {
+        console.error(`Error checking for similar listings: ${recentError.message}`);
+      } else if (recentListings.length > 0 && listing.text) {
+        // Check for text similarity
+        for (const match of recentListings) {
+          // Skip if it's too old (more than 30 days)
+          const matchDate = new Date(match.date);
+          const listingDate = new Date(dateString);
+          const daysDifference = Math.abs((listingDate - matchDate) / (1000 * 60 * 60 * 24));
+          
+          if (daysDifference > 30) continue;
+          
+          // Calculate text similarity if both have text
+          if (match.text) {
+            const similarity = calculateTextSimilarity(listing.text, match.text);
+            
+            if (verbose && similarity > 0.5) {
+              console.log(`Checking similar listing by text:`);
+              console.log(`- ID: ${match.id}`);
+              console.log(`- Title: ${match.title}`);
+              console.log(`- Text similarity: ${Math.round(similarity * 100)}%`);
+            }
+            
+            // If the similarity is very high, consider it a duplicate (85% or higher)
+            if (similarity >= 0.85) {
+              if (verbose) {
+                console.log(`Found duplicate listing by high text similarity: ${match.id}`);
+              }
+              return true;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error in text similarity check: ${error.message}`);
+    }
+    
+    return false;
   } catch (error) {
     console.error('Error in listingExists:', error);
     throw error;
@@ -761,7 +902,7 @@ async function deleteExpiredListings(groupName, timestampSeconds) {
     // Find listings to delete (for logging purposes)
     const { data: expiredListings, error: countError } = await supabase
       .from(TABLES.LISTINGS)
-      .select('id, title, date')
+      .select('id, title, date, images')
       .eq('whatsapp_group', groupName)
       .lt('date', oldestMessageDate);
     
@@ -778,6 +919,26 @@ async function deleteExpiredListings(groupName, timestampSeconds) {
     
     console.log(`Found ${expiredListings.length} expired listings to delete for group "${groupName}"`);
     
+    // Delete all associated images from S3 bucket first
+    let removedImageCount = 0;
+    for (const listing of expiredListings) {
+      if (listing.images && Array.isArray(listing.images) && listing.images.length > 0) {
+        for (const imagePath of listing.images) {
+          // Delete the image from storage
+          const { error: storageError } = await supabase
+            .storage
+            .from('listing-images')
+            .remove([imagePath]);
+          
+          if (storageError) {
+            console.warn(`Warning: Failed to delete image ${imagePath}: ${storageError.message}`);
+          } else {
+            removedImageCount++;
+          }
+        }
+      }
+    }
+    
     // Delete the expired listings
     const { error: deleteError } = await supabase
       .from(TABLES.LISTINGS)
@@ -790,8 +951,11 @@ async function deleteExpiredListings(groupName, timestampSeconds) {
       return { deleted: 0, error: deleteError };
     }
     
+    console.log(`Deleted ${expiredListings.length} expired listings and ${removedImageCount} associated images for group "${groupName}"`);
+    
     return { 
       deleted: expiredListings.length, 
+      imagesRemoved: removedImageCount,
       error: null,
       expiredListings // Return the list of deleted listings for reference
     };

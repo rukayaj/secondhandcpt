@@ -143,45 +143,89 @@ async function downloadImage(url, outputPath) {
 }
 
 /**
- * Upload an image to Supabase Storage
- * @param {string} filePath - Path to the image file
- * @param {string} bucketPath - Path within the Supabase bucket
+ * Download an image from WAHA API
+ * @param {string} url - URL of the image to download from WAHA
+ * @param {string} outputPath - Path where the image should be saved
+ * @returns {Promise<boolean>} True if successful, false otherwise
+ */
+async function downloadImageFromWaha(url, outputPath) {
+  try {
+    // Fix URL if needed: The media URLs use port 3000 but the API uses 3001
+    if (url && url.includes('localhost:3000')) {
+      url = url.replace('localhost:3000', 'localhost:3001');
+    }
+    
+    // This is just an alias for downloadImage to maintain compatibility
+    return downloadImage(url, outputPath);
+  } catch (error) {
+    console.error(`Error in downloadImageFromWaha: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Upload an image to Supabase storage
+ * @param {string} filePath - Path to the local file
+ * @param {string} bucketPath - Path within the bucket where the file should be stored
+ * @param {boolean} useDirectPath - If true, use the bucketPath directly without appending the filename
  * @returns {Promise<string|null>} Public URL of the uploaded image or null if failed
  */
-async function uploadImageToSupabase(filePath, bucketPath) {
+async function uploadImageToSupabase(filePath, bucketPath, useDirectPath = false) {
   try {
     const supabase = getAdminClient();
     const fileName = path.basename(filePath);
     const fileContent = fs.readFileSync(filePath);
     
-    // Upload the file
+    // Normalize the bucket path to avoid duplication of "listings/"
+    let normalizedPath = bucketPath;
+    if (useDirectPath) {
+      // Use the path directly as provided
+      normalizedPath = bucketPath;
+    } else {
+      // Check if we need to join the bucketPath with the filename
+      if (bucketPath.endsWith('/') || bucketPath.endsWith('\\')) {
+        normalizedPath = `${bucketPath}${fileName}`;
+      } else {
+        normalizedPath = `${bucketPath}/${fileName}`;
+      }
+    }
+    
+    // Ensure we don't have double "listings/" prefix
+    if (normalizedPath.includes('listings/listings/')) {
+      normalizedPath = normalizedPath.replace('listings/listings/', 'listings/');
+    }
+    
+    // Upload the file with normalized path
     const { data, error } = await supabase.storage
-      .from('images')
-      .upload(`${bucketPath}/${fileName}`, fileContent, {
+      .from('listing-images')
+      .upload(normalizedPath, fileContent, {
         contentType: 'image/jpeg', // Assuming JPEG, adjust if needed
-        upsert: false
+        upsert: true // Use upsert to overwrite if file exists, preventing duplicates
       });
     
     if (error) {
       if (error.message.includes('duplicate')) {
         // Get the public URL for existing image
         const { data: urlData } = await supabase.storage
-          .from('images')
-          .getPublicUrl(`${bucketPath}/${fileName}`);
+          .from('listing-images')
+          .getPublicUrl(normalizedPath);
           
-        return urlData.publicUrl;
+        return urlData?.publicUrl || null;
       }
-      throw error;
+      
+      console.error('Error uploading image to Supabase:', error.message);
+      return null;
     }
     
     // Get the public URL
     const { data: urlData } = await supabase.storage
-      .from('images')
-      .getPublicUrl(`${bucketPath}/${fileName}`);
-      
-    return urlData.publicUrl;
+      .from('listing-images')
+      .getPublicUrl(normalizedPath);
+    
+    console.log(`Successfully uploaded image to path: ${normalizedPath}`);
+    return urlData?.publicUrl || null;
   } catch (error) {
-    console.error(`Error uploading image to Supabase: ${error.message}`);
+    console.error('Error in uploadImageToSupabase:', error);
     return null;
   }
 }
@@ -219,7 +263,7 @@ async function checkMissingSupabaseImages(listing) {
 
       // Check if image exists in Supabase
       const { data, error } = await supabase.storage
-        .from('images')
+        .from('listing-images')
         .list(`${group.bucketPath}`, {
           search: imageName
         });
@@ -246,6 +290,7 @@ module.exports = {
   getGroupByName,
   ensureDirectoriesExist,
   downloadImage,
+  downloadImageFromWaha,
   uploadImageToSupabase,
   checkMissingSupabaseImages
 }; 

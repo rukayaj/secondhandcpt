@@ -14,9 +14,18 @@ const CATEGORIES = {
       { pattern: /\b(clothing|clothes|dress|shirt|pants|shorts|onesie|romper|outfit|vest|sweater|jumper|pyjamas|bodysuit|sleepsuit|babygrow|bib|jersey)\b/i, weight: 1 },
       { pattern: /\b(size \d+|months|0-3|3-6|6-9|9-12|12-18|18-24)\b/i, weight: 0.5 }, // Size indicators
       { pattern: /\b(cotton|linen|wool|fleece|knit)\b/i, weight: 0.3 }, // Fabric types
-      { pattern: /\b(h&m|ackermans|woolworths|woolies|keedo|cotton on|gap|naartjie|next|carters|pep|earthchild|cotton on|cath kid|mothercare)\b/i, weight: 0.7 } // Brand patterns
+      { pattern: /\b(h&m|ackermans|woolworths|woolies|keedo|cotton on|gap|naartjie|next|carters|pep|earthchild|cotton on|cath kid|mothercare)\b/i, weight: 0.7 }, // Brand patterns
+      { pattern: /\b(maternity|pregnancy|pregnant|nursing)\b/i, weight: -1 } // Negative pattern to exclude maternity clothing
     ],
     description: 'Baby and toddler clothing items including outfits, dresses, shirts, pants, etc.'
+  },
+  'Maternity Clothing': {
+    patterns: [
+      { pattern: /\b(maternity|pregnancy|pregnant|nursing|feeding top|breastfeeding)\b/i, weight: 1 },
+      { pattern: /\b(clothing|clothes|dress|shirt|pants|shorts|outfit|vest|sweater|jumper|leggings|jeans)\b/i, weight: 0.5 },
+      { pattern: /\b(h&m|woolworths|woolies|gap|cotton on|seraphine|thyme|cherry melon)\b/i, weight: 0.3 } // Common maternity brands
+    ],
+    description: 'Maternity and nursing clothing for pregnant and breastfeeding mothers'
   },
   'Toys': {
     patterns: [
@@ -71,9 +80,10 @@ const CATEGORIES = {
   'Books': {
     patterns: [
       { pattern: /\b(book|story|read|board book|picture book|children|baby book|toddler book|bedtime|library)\b/i, weight: 1 },
-      { pattern: /\b(hardcover|paperback|collection|series|set|educational|learning)\b/i, weight: 0.5 }
+      { pattern: /\b(hardcover|paperback|collection|series|set|educational|learning)\b/i, weight: 0.5 },
+      { pattern: /\b(baby sense|sleep sense|feeding sense|weaning sense|toddler sense)\b/i, weight: 2 } // Strong pattern for the "sense" book series
     ],
-    description: 'Books for babies and toddlers including board books, picture books, etc.'
+    description: 'Books for babies and toddlers including board books, picture books, and parenting books like the "Sense" series'
   },
   'Safety': {
     patterns: [
