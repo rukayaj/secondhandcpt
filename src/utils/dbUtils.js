@@ -44,6 +44,36 @@ async function addListing(listing) {
     // Format sold date if available
     const soldDateString = listing.soldDate instanceof Date ? listing.soldDate.toISOString() : listing.soldDate;
     
+    // Generate a meaningful title from the message text if title is missing or generic
+    let title = listing.title;
+    if (!title || title.trim() === '' || title === 'Unknown Item' || title === 'Untitled') {
+      // Extract a descriptive title from the text content
+      if (listing.text) {
+        // Get the first line (or first 60 chars), cleaned of common prefixes
+        title = listing.text
+          .split('\n')[0]  // Get first line
+          .replace(/^(selling|iso|wtb|wts|wtt):/i, '') // Remove common prefixes
+          .trim();
+          
+        // If it's still too long, truncate it
+        if (title.length > 60) {
+          title = title.substring(0, 57) + '...';
+        }
+        
+        // If it's too short, try to get more text
+        if (title.length < 10 && listing.text.length > 10) {
+          title = listing.text
+            .replace(/\n/g, ' ')
+            .trim()
+            .substring(0, 60);
+          
+          if (title.length === 60) {
+            title += '...';
+          }
+        }
+      }
+    }
+    
     // Format the listing for the database
     const dbListing = {
       whatsapp_group: listing.whatsappGroup,
@@ -57,7 +87,7 @@ async function addListing(listing) {
       date_added: new Date().toISOString(),
       is_iso: listing.isISO || false,
       category: listing.category || 'Uncategorised',
-      title: listing.title || 'Untitled',
+      title: title || 'Item for sale', // Use our improved title with a final fallback
       // Add sold status fields
       is_sold: listing.isSold || false,
       sold_date: soldDateString || null,

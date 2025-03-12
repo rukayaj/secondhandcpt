@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import ListingCard from '../components/ListingCard';
 import Pagination from '../components/Pagination';
-import { searchListings, type Listing } from '@/utils/parser';
+import { searchListingsAsync, type Listing } from '@/utils/parser';
 
 interface SearchPageProps {
   listings: Listing[];
@@ -66,8 +66,8 @@ export async function getServerSideProps({ query }: { query: any }) {
   const currentPage = parseInt(page, 10);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   
-  // Search listings by search term using our improved implementation
-  const filteredListings = searchListings(searchTerm);
+  // Search listings by search term using database query
+  const filteredListings = await searchListingsAsync(searchTerm);
   
   // Sort by date (newest first)
   filteredListings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

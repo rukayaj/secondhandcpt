@@ -406,6 +406,7 @@ IMPORTANT RULES:
 - If a post is asking for an item (e.g. "ISO: looking for a car seat"), set is_iso to true.
 - If there are no valid product listings at all, return an empty array [].
 - A valid listing must at minimum have a title and indicate if it's for sale or ISO.
+- IMPORTANT: For the title field, extract the specific item name. If you cannot determine a specific name, use a descriptive part of the message instead. NEVER use generic titles like "Unknown Item". Extract meaningful titles that identify the actual product.
 
 IMPORTANT CATEGORIZATION GUIDELINES:
 1. Users often are selling books in the "Sense" series (Baby Sense, Weaning Sense, Feeding Sense, Toddler Sense, Sleep Sense, etc.) should always be categorized as "Books"
