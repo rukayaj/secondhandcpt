@@ -65,3 +65,4 @@ next-env.d.ts
 /tmp/waha-images/
 /tmp/metadata.json 
 .media
+waha/whatsappmedia
