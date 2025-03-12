@@ -155,10 +155,204 @@ async function downloadImageFromWaha(url, outputPath) {
       url = url.replace('localhost:3000', 'localhost:3001');
     }
     
-    // This is just an alias for downloadImage to maintain compatibility
-    return downloadImage(url, outputPath);
+    console.log(`Attempting to download image from WAHA: ${url}`);
+    
+    // Try the original URL first
+    try {
+      const response = await axios({
+        method: 'GET',
+        url: url,
+        responseType: 'stream',
+        timeout: 30000, // 30 second timeout
+        maxContentLength: 50 * 1024 * 1024, // 50MB max size
+        headers: {
+          'Accept': 'image/*'
+        }
+      });
+      
+      // Create directory if it doesn't exist
+      const dir = path.dirname(outputPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // Use a promise with proper timeouts for writing
+      return await new Promise((resolve, reject) => {
+        // Set up a timeout for the entire operation
+        const timeoutId = setTimeout(() => {
+          console.error('Timeout downloading image - took too long');
+          
+          // Close the writer if it exists
+          if (writer && typeof writer.close === 'function') {
+            writer.close();
+          }
+          
+          // Delete any partial file that may have been created
+          try {
+            if (fs.existsSync(outputPath)) {
+              fs.unlinkSync(outputPath);
+              console.log(`Deleted partial file after timeout: ${outputPath}`);
+            }
+          } catch (unlinkError) {
+            console.error(`Failed to delete partial file: ${unlinkError.message}`);
+          }
+          
+          resolve(false);
+        }, 30000); // 30s timeout for the entire operation
+
+        // Create the writer
+        const writer = fs.createWriteStream(outputPath);
+        
+        // Set up handler for when response data is being piped to the writer
+        response.data.on('error', (error) => {
+          clearTimeout(timeoutId);
+          console.error(`Error in response data stream: ${error.message}`);
+          writer.close();
+          reject(false);
+        });
+
+        // Set up handlers for the writer
+        writer.on('finish', () => {
+          clearTimeout(timeoutId);
+          console.log(`Successfully saved image to ${outputPath}`);
+          
+          // Verify the file exists and has content
+          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+            resolve(true);
+          } else {
+            console.error('File was created but is empty or missing');
+            reject(false);
+          }
+        });
+        
+        writer.on('error', error => {
+          clearTimeout(timeoutId);
+          console.error(`Error writing file: ${error.message}`);
+          reject(false);
+        });
+
+        // Pipe the response to the writer
+        response.data.pipe(writer);
+      });
+      
+    } catch (originalError) {
+      // If the original URL failed with a 404, try to modify the URL
+      if (originalError.response && originalError.response.status === 404) {
+        console.log('Original URL returned 404, trying alternative URL formats...');
+        
+        // Extract the parts of the URL to modify
+        // URL format is typically: http://localhost:3001/api/files/default/false_{groupId}_{messageId}_{senderId}.jpeg
+        const urlParts = url.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const baseUrl = urlParts.slice(0, urlParts.length - 1).join('/');
+        
+        // Get the parts of the filename
+        const filenameParts = filename.split('_');
+        if (filenameParts.length >= 4) {
+          const groupId = filenameParts[1];
+          const messageId = filenameParts[2];
+          const senderIdWithExt = filenameParts.slice(3).join('_');
+          
+          // Check if the message ID is 32 characters (likely a full hash)
+          if (messageId.length === 32 && !messageId.startsWith('3A')) {
+            // Try with a shortened message ID starting with 3A (20 chars)
+            const shortenedMessageId = '3A' + messageId.substring(0, 18);
+            const altUrl = `${baseUrl}/false_${groupId}_${shortenedMessageId}_${senderIdWithExt}`;
+            
+            console.log(`Trying alternative URL format: ${altUrl}`);
+            try {
+              const response = await axios({
+                method: 'GET',
+                url: altUrl,
+                responseType: 'stream',
+                timeout: 30000,
+                maxContentLength: 50 * 1024 * 1024,
+                headers: {
+                  'Accept': 'image/*'
+                }
+              });
+              
+              // Create directory if it doesn't exist
+              const dir = path.dirname(outputPath);
+              if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+              }
+
+              // Use a promise with proper timeouts for writing
+              return await new Promise((resolve, reject) => {
+                // Set up a timeout for the entire operation
+                const timeoutId = setTimeout(() => {
+                  console.error('Timeout downloading image with alternative URL - took too long');
+                  
+                  // Close the writer if it exists
+                  if (writer && typeof writer.close === 'function') {
+                    writer.close();
+                  }
+                  
+                  // Delete any partial file that may have been created
+                  try {
+                    if (fs.existsSync(outputPath)) {
+                      fs.unlinkSync(outputPath);
+                      console.log(`Deleted partial file after timeout: ${outputPath}`);
+                    }
+                  } catch (unlinkError) {
+                    console.error(`Failed to delete partial file: ${unlinkError.message}`);
+                  }
+                  
+                  resolve(false);
+                }, 30000); // 30s timeout for the entire operation
+
+                // Create the writer
+                const writer = fs.createWriteStream(outputPath);
+                
+                // Set up handler for when response data is being piped to the writer
+                response.data.on('error', (error) => {
+                  clearTimeout(timeoutId);
+                  console.error(`Error in response data stream (alternative URL): ${error.message}`);
+                  writer.close();
+                  reject(false);
+                });
+
+                // Set up handlers for the writer
+                writer.on('finish', () => {
+                  clearTimeout(timeoutId);
+                  console.log(`Successfully saved image to ${outputPath} using alternative URL`);
+                  
+                  // Verify the file exists and has content
+                  if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                    resolve(true);
+                  } else {
+                    console.error('File was created but is empty or missing');
+                    reject(false);
+                  }
+                });
+                
+                writer.on('error', error => {
+                  clearTimeout(timeoutId);
+                  console.error(`Error writing file: ${error.message}`);
+                  reject(false);
+                });
+
+                // Pipe the response to the writer
+                response.data.pipe(writer);
+              });
+            } catch (altError) {
+              console.error(`Alternative URL also failed: ${altError.message}`);
+              throw altError; // Re-throw to be caught by outer catch
+            }
+          }
+        }
+      }
+      
+      // If we get here, either the URL wasn't appropriate for modification or the alternative URL also failed
+      throw originalError;
+    }
   } catch (error) {
-    console.error(`Error in downloadImageFromWaha: ${error.message}`);
+    console.error(`Error downloading image from ${url}: ${error.message}`);
+    // Additional error details
+    if (error.response) {
+      console.error(`Status: ${error.response.status}, Data:`, error.response.data);
+    }
     return false;
   }
 }

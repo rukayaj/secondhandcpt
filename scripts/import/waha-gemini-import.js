@@ -85,7 +85,7 @@ program
   .option('--skip-images', 'Skip processing and uploading images to Supabase Storage')
   .option('--check-images', 'Check for missing images in Supabase Storage')
   .option('--days <n>', 'Number of days of history to fetch', parseInt, 30)
-  .option('--limit <n>', 'Limit number of messages per group', parseInt)
+  .option('--limit <n>', 'Limit number of messages per group', parseInt, 5)
   .option('--ignore-last-date', 'Ignore the last import date and use days parameter')
   .option('--skip-sync', 'Skip synchronization of expired listings')
   .parse(process.argv);
@@ -855,8 +855,9 @@ async function fetchAllGroupMessages(days, latestTimestamps = {}, options = {}) 
     console.log(`Fetching messages from group "${group.name}" (${group.chatId})...`);
     
     try {
-      // Determine API limit (use options.limit if defined, otherwise default to 100)
-      const apiLimit = options.limit || 100;
+      // Determine API limit (use options.limit if defined, otherwise default to 5)
+      const apiLimit = options.limit || 5;
+      console.log(`Limiting to ${apiLimit} messages per group`);
       
       // Use group-specific timestamp if available, otherwise use fallback
       let fromTimestamp = fallbackTimestamp;
@@ -898,9 +899,9 @@ async function fetchAllGroupMessages(days, latestTimestamps = {}, options = {}) 
         
         // Apply limit if specified
         let processedMessages = messagesWithGroup;
-        if (options.limit && messagesWithGroup.length > options.limit) {
-          processedMessages = messagesWithGroup.slice(0, options.limit);
-          console.log(`Limiting to ${options.limit} messages from "${group.name}" (found ${messagesWithGroup.length})`);
+        if (apiLimit && messagesWithGroup.length > apiLimit) {
+          processedMessages = messagesWithGroup.slice(0, apiLimit);
+          console.log(`Limiting to ${apiLimit} messages from "${group.name}" (found ${messagesWithGroup.length})`);
         }
         
         console.log(`Found ${processedMessages.length} messages in "${group.name}" since ${new Date(fromTimestamp * 1000).toISOString()}`);
@@ -938,11 +939,13 @@ async function processImages(listings, verbose = false) {
   let processedImageCount = 0;
   let successCount = 0;
   let errorCount = 0;
+  let skippedCount = 0;
   
   // Create a directory for storing temporary images
   const tmpDir = path.join(process.cwd(), 'tmp', 'waha-images');
   if (!fs.existsSync(tmpDir)) {
     fs.mkdirSync(tmpDir, { recursive: true });
+    console.log(`Created temporary directory for images: ${tmpDir}`);
   }
   
   for (let j = 0; j < updatedListings.length; j++) {
@@ -964,40 +967,99 @@ async function processImages(listings, verbose = false) {
     // Process each image
     for (let i = 0; i < imageUrls.length; i++) {
       const imageUrl = imageUrls[i];
-      if (!imageUrl) continue;
+      
+      if (!imageUrl) {
+        console.log('Skipping empty image URL');
+        skippedCount++;
+        continue;
+      }
       
       processedImageCount++;
       
       if (verbose) {
         console.log(`Processing image ${i + 1}/${imageUrls.length} for listing: ${listing.title || 'Untitled'}`);
+        console.log(`Image URL: ${imageUrl}`);
+      } else {
+        console.log(`Processing image ${i + 1}/${imageUrls.length} for listing: ${listing.title || 'Untitled'}`);
       }
       
       try {
-        // Generate a unique ID for the image
+        // Generate a unique ID for this image
         const imageId = `${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        const localPath = path.join(tmpDir, `image_${imageId}.jpg`);
         
         // Download the image from WAHA
-        const localPath = path.join(tmpDir, `image_${imageId}.jpg`);
-        await downloadImageFromWaha(imageUrl, localPath);
+        console.log(`Downloading image from WAHA: ${imageUrl}`);
+        const downloadSuccess = await downloadImageFromWaha(imageUrl, localPath);
+        
+        if (!downloadSuccess) {
+          console.log(`Failed to download image from ${imageUrl}`);
+          errorCount++;
+          continue;
+        }
+        
+        // Verify the file exists before proceeding
+        if (!fs.existsSync(localPath)) {
+          console.error(`Downloaded file does not exist at path: ${localPath}`);
+          errorCount++;
+          continue;
+        }
+        
+        // Check if file is empty or too small to be a valid image
+        const fileStats = fs.statSync(localPath);
+        if (fileStats.size < 100) { // Less than 100 bytes is likely invalid
+          console.error(`Downloaded file is too small to be a valid image: ${fileStats.size} bytes`);
+          
+          // Remove invalid file
+          try {
+            fs.unlinkSync(localPath);
+            console.log(`Removed invalid image file: ${localPath}`);
+          } catch (unlinkError) {
+            console.warn(`Could not remove invalid image file: ${unlinkError.message}`);
+          }
+          
+          errorCount++;
+          continue;
+        }
+        
+        console.log(`Successfully downloaded image to ${localPath} (${fileStats.size} bytes)`);
         
         // Create a structured path for the image within the listings folder
-        // Use format: listings/groupName_messageId_index_uniqueId.jpg
-        // This is more manageable and consistent than the previous approach
-        const groupNameForPath = listing.whatsappGroup.replace(/\s+/g, '_').replace(/[^\w-]/g, '');
-        const imagePath = `listings/${groupNameForPath}_${listing.messageId || j}_${i}_${imageId}.jpg`;
+        // Format: listings/groupName_index_timestamp_uniqueId.jpg
+        // This avoids using the messageId which can have varying formats
+        const groupNameForPath = listing.whatsappGroup?.replace(/\s+/g, '_').replace(/[^\w-]/g, '') || 'unknown-group';
+        
+        // Use a consistent format for the image path that doesn't rely on message ID format
+        const imagePath = `listings/${groupNameForPath}_${i}_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`;
+        
+        // Upload the image to Supabase
+        console.log(`Uploading image to Supabase with path: ${imagePath}`);
         
         // Upload with direct path to avoid nesting issues
-        await uploadImageToSupabase(localPath, imagePath, true);
+        const uploadSuccess = await uploadImageToSupabase(localPath, imagePath, true);
         
-        // Add the image path to the listing's images
-        supabaseImagePaths.push(imagePath);
+        if (uploadSuccess) {
+          console.log(`Successfully uploaded image to Supabase`);
+          // Add the image path to the listing's images
+          supabaseImagePaths.push(imagePath);
+          successCount++;
+        } else {
+          console.error(`Failed to upload image to Supabase`);
+          errorCount++;
+        }
         
-        // Delete the temporary file
-        fs.unlinkSync(localPath);
-        
-        successCount++;
+        // Delete the temporary file after successful upload
+        try {
+          if (fs.existsSync(localPath)) {
+            fs.unlinkSync(localPath);
+            console.log(`Deleted temporary file: ${localPath}`);
+          }
+        } catch (unlinkError) {
+          console.warn(`Warning: Could not delete temporary file: ${unlinkError.message}`);
+        }
       } catch (error) {
-        console.error(`Error processing image: ${error.message}`);
+        console.error(`Error processing image for ${listing.title || 'Untitled'}: ${error.message}`);
+        console.error(error.stack);
         errorCount++;
       }
     }
@@ -1005,6 +1067,9 @@ async function processImages(listings, verbose = false) {
     // Update the listing's images with the Supabase Storage paths
     if (supabaseImagePaths.length > 0) {
       updatedListings[j].images = supabaseImagePaths;
+      console.log(`Added ${supabaseImagePaths.length} images to listing: ${listing.title || 'Untitled'}`);
+    } else {
+      console.log(`No successful image uploads for listing: ${listing.title || 'Untitled'}`);
     }
   }
   
@@ -1013,6 +1078,7 @@ async function processImages(listings, verbose = false) {
   console.log(`- ${processedImageCount} total images processed`);
   console.log(`- ${successCount} successful uploads`);
   console.log(`- ${errorCount} errors`);
+  console.log(`- ${skippedCount} skipped (empty URLs)`);
   
   return updatedListings;
 }
