@@ -57,24 +57,8 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   const [additionalImageErrors, setAdditionalImageErrors] = React.useState<Record<number, boolean>>({});
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
   
-  // Determine the category based on text content
-  const determineCategory = (): string => {
-    const text = listing.text.toLowerCase();
-    if (text.includes('clothing') || text.includes('shirt') || text.includes('pants') || text.includes('dress')) return 'Clothing';
-    if (text.includes('toy') || text.includes('game') || text.includes('play')) return 'Toys';
-    if (text.includes('furniture') || text.includes('chair') || text.includes('table')) return 'Furniture';
-    if (text.includes('shoe') || text.includes('boot') || text.includes('footwear')) return 'Footwear';
-    if (text.includes('stroller') || text.includes('car seat') || text.includes('carrier')) return 'Gear';
-    if (text.includes('bottle') || text.includes('feeding') || text.includes('food')) return 'Feeding';
-    if (text.includes('hat') || text.includes('accessory') || text.includes('accessorie')) return 'Accessories';
-    if (text.includes('swim') || text.includes('pool')) return 'Swimming';
-    if (text.includes('bed') || text.includes('sheet') || text.includes('blanket')) return 'Bedding';
-    if (text.includes('diaper') || text.includes('nappy')) return 'Diapers';
-    if (text.includes('book') || text.includes('read')) return 'Books';
-    return 'Other';
-  };
-
-  const category = determineCategory();
+  // Use the database category value instead of determining from text
+  const category = listing.category || 'Other';
 
   // Generate a display title from the text
   const displayTitle = listing.text
@@ -252,7 +236,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {relatedListings.map((item) => {
                 const relatedItemTitle = getRelatedItemTitle(item);
-                const relatedItemCategory = determineCategory();
+                const relatedItemCategory = item.category || 'Other';
                 
                 return (
                   <Link 
@@ -333,21 +317,12 @@ export const getStaticProps: GetStaticProps = async ({ params }) => {
     // Get related listings (same category or similar price)
     const allListings = await getAllListings();
     
-    // Determine the category of the current listing
-    const text = listing.text.toLowerCase();
-    let category = 'Other';
-    
-    if (text.includes('clothing')) category = 'Clothing';
-    else if (text.includes('toy')) category = 'Toys';
-    else if (text.includes('furniture')) category = 'Furniture';
-    // ... and so on for other categories
-    
     // Find related listings with the same category or similar price
     const relatedListings = allListings
       .filter(item => 
         item.id !== listing.id && 
         (
-          (item.text.toLowerCase().includes(category.toLowerCase())) ||
+          (item.category && item.category.toLowerCase() === listing.category?.toLowerCase()) ||
           (listing.price && item.price && 
            item.price >= listing.price * 0.7 && 
            item.price <= listing.price * 1.3)

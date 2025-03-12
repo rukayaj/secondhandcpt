@@ -15,6 +15,7 @@ export interface Listing {
   checkedOn: string | null;
   isISO: boolean; // In Search Of
   category: string; // Add category field
+  sizes?: string[]; // Add sizes array field
 }
 
 // Convert a Supabase record to the application's Listing format
@@ -34,7 +35,8 @@ export function convertRecordToListing(record: ListingRecord): Listing {
     isISO: record.is_iso !== undefined ? record.is_iso : 
            // Fallback to text detection if database field is not set
            record.text.toLowerCase().includes('iso') || record.text.toLowerCase().includes('in search of'),
-    category: record.category || 'Other' // Use the database category or default to 'Other'
+    category: record.category || 'Other', // Use the database category or default to 'Other'
+    sizes: record.sizes || []
   };
 }
 

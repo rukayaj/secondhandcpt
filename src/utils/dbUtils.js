@@ -150,7 +150,8 @@ async function addListings(listings) {
       collection_areas: listing.collectionAreas || [],
       date_added: new Date().toISOString(),
       is_iso: listing.isISO || false,
-      category: listing.category || 'Uncategorised'
+      category: listing.category || 'Uncategorised',
+      sizes: listing.sizes || []
     }));
     
     // Add the listings to the database in batches

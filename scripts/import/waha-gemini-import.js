@@ -408,9 +408,25 @@ IMPORTANT RULES:
 - A valid listing must at minimum have a title and indicate if it's for sale or ISO.
 - IMPORTANT: For the title field, extract the specific item name. If you cannot determine a specific name, use a descriptive part of the message instead. NEVER use generic titles like "Unknown Item". Extract meaningful titles that identify the actual product.
 
+IMPORTANT SIZE EXTRACTION GUIDELINES:
+1. Extract ALL sizes mentioned for clothing and footwear items into the "sizes" array. 
+2. Common clothing size formats: 
+   - Age-based: 0-3m, 3-6m, 6-9m, 9-12m, 12-18m, 18-24m, 2-3y, 3-4y, etc.
+   - Standard: XXS, XS, S, M, L, XL, XXL, etc.
+   - Numeric: 24, 26, 28, 30, 32, etc. (could be waist size in inches)
+   - Height-based: 50cm, 56cm, 62cm, 68cm, etc.
+3. Common footwear size formats:
+   - UK sizes: typically smaller numbers (1, 2, 3, etc.)
+   - EU sizes: typically larger numbers (16, 17, 18, 19, 20, etc.)
+   - US sizes
+   - Age-based: 0-3m, 3-6m, etc.
+   - Length in cm
+4. If multiple sizes are mentioned (e.g., "size 2 & 3"), include ALL sizes in the array
+5. If a size range is mentioned (e.g., "size 3-6 months"), include it as a single entry
+
 IMPORTANT CATEGORIZATION GUIDELINES:
 1. Users often are selling books in the "Sense" series (Baby Sense, Weaning Sense, Feeding Sense, Toddler Sense, Sleep Sense, etc.) should always be categorized as "Books"
-2. Distinguish between regular "Clothing" and "Maternity Clothing" based on context
+2. Distinguish between regular "Clothing" and "Maternity Clothing" based on context. Keep a look out for things listed with sizes - these will probably be clothing of one kind or another.
 3. Footwear (shoes, sandals, boots, etc.) should be categorized as "Footwear" not "Clothing"
 4. "Gear" includes strollers, car seats, carriers, high chairs, playpens, etc.
 5. "Feeding" includes bottles, breast pumps, sterilizers, baby food makers, etc.
@@ -433,7 +449,7 @@ Return an ARRAY of listings, where each listing has these fields:
   "is_free": boolean,
   "is_iso": boolean (true if this is an 'In Search Of' post, not a sales listing),
   "is_sold": boolean (true if the item has been marked as sold/taken),
-  "size": "Size if mentioned",
+  "sizes": ["Array of size values - include ALL mentioned sizes"],
   "category": "Category of item from the following list: Clothing, Maternity Clothing, Footwear, Toys, Furniture, Books, Feeding, Bath, Safety, Bedding, Diapering, Health, Swimming, Gear, Accessories, Uncategorised"
 }
 
@@ -464,7 +480,7 @@ OUTPUT:
     "is_free": false,
     "is_iso": false,
     "is_sold": false,
-    "size": null,
+    "sizes": [],
     "category": "Baby Essentials"
   },
   {
@@ -476,7 +492,7 @@ OUTPUT:
     "is_free": false,
     "is_iso": false,
     "is_sold": false,
-    "size": "3-5 years",
+    "sizes": ["3-5 years"],
     "category": "Toys"
   }
 ]
@@ -506,7 +522,7 @@ OUTPUT:
     "is_free": false,
     "is_iso": false,
     "is_sold": true,
-    "size": "Large",
+    "sizes": ["Large"],
     "category": "Clothing"
   }
 ]
@@ -531,7 +547,7 @@ OUTPUT:
     "is_free": false,
     "is_iso": true,
     "is_sold": false,
-    "size": "Newborn",
+    "sizes": ["Newborn"],
     "category": "Furniture"
   },
   {
@@ -543,8 +559,28 @@ OUTPUT:
     "is_free": false,
     "is_iso": false,
     "is_sold": false,
-    "size": "2-3 years",
+    "sizes": ["2-3 years"],
     "category": "Clothing"
+  }
+]
+
+Example 4 (Multiple sizes in one listing):
+Message 1 (7/15/2023, 10:30:45 AM):
+Baby shoes for sale, sizes 2 & 3, excellent condition, R100 for both pairs. Collection from Sea Point.
+
+OUTPUT:
+[
+  {
+    "title": "Baby shoes",
+    "price": "R100",
+    "condition": "Excellent condition",
+    "collection_areas": "Sea Point",
+    "description": "Baby shoes for sale, sizes 2 & 3, excellent condition, R100 for both pairs",
+    "is_free": false,
+    "is_iso": false,
+    "is_sold": false,
+    "sizes": ["2", "3"],
+    "category": "Footwear"
   }
 ]
 `;
@@ -1192,7 +1228,9 @@ async function addNewListings(listings, verbose = false) {
         messageCount: listing.messageCount || 1,
         // Add sold status and date
         isSold: listing.is_sold || false,
-        soldDate: listing.soldDate || null
+        soldDate: listing.soldDate || null,
+        // Add sizes array 
+        sizes: listing.sizes || []
       };
       
       // Extract phone number from the message text

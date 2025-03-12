@@ -61,24 +61,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
     .join(' ')
     .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
 
-  // Determine the category based on text content
-  const determineCategory = (): string => {
-    const text = listing.text.toLowerCase();
-    if (text.includes('clothing') || text.includes('shirt') || text.includes('pants') || text.includes('dress')) return 'Clothing';
-    if (text.includes('toy') || text.includes('game') || text.includes('play')) return 'Toys';
-    if (text.includes('furniture') || text.includes('chair') || text.includes('table')) return 'Furniture';
-    if (text.includes('shoe') || text.includes('boot') || text.includes('footwear')) return 'Footwear';
-    if (text.includes('stroller') || text.includes('car seat') || text.includes('carrier')) return 'Gear';
-    if (text.includes('bottle') || text.includes('feeding') || text.includes('food')) return 'Feeding';
-    if (text.includes('hat') || text.includes('accessory') || text.includes('accessorie')) return 'Accessories';
-    if (text.includes('swim') || text.includes('pool')) return 'Swimming';
-    if (text.includes('bed') || text.includes('sheet') || text.includes('blanket')) return 'Bedding';
-    if (text.includes('diaper') || text.includes('nappy')) return 'Diapers';
-    if (text.includes('book') || text.includes('read')) return 'Books';
-    return 'Other';
-  };
-
-  const category = determineCategory();
+  // Use the database category value instead of determining from text
+  const category = listing.category || 'Other';
 
   // Use the image from the listing
   const getImageSrc = () => {

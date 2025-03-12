@@ -11,7 +11,7 @@ export interface FilterCriteria {
   maxPrice?: number;
   dateRange?: number; // in days
   condition?: string;
-  size?: string;
+  sizes?: string[]; // Change from size to sizes array
   includeISO?: boolean; // New flag to control inclusion of ISO posts
 }
 
@@ -49,9 +49,7 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
     // Special case for "Under R100" where max is 99.99
     if (filters.minPrice === 0 && filters.maxPrice === 99.99) {
       filteredListings = filteredListings.filter(
-        listing => listing.price !== null && 
-                  listing.price >= filters.minPrice! && 
-                  listing.price < 100
+        listing => listing.price !== null && listing.price <= 100
       );
     } else {
       filteredListings = filteredListings.filter(
@@ -62,23 +60,39 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
     }
   }
   
-  // Filter by date range (in days)
-  if (filters.dateRange) {
-    const now = new Date();
-    const cutoffDate = new Date();
-    cutoffDate.setDate(now.getDate() - filters.dateRange);
-    
-    filteredListings = filteredListings.filter(listing => {
-      const listingDate = new Date(listing.date);
-      return listingDate >= cutoffDate;
-    });
-  }
-  
   // Filter by condition
   if (filters.condition) {
     filteredListings = filteredListings.filter(
-      listing => listing.condition && listing.condition.toLowerCase() === filters.condition!.toLowerCase()
+      listing => listing.condition === filters.condition
     );
+  }
+  
+  // Filter by date range (in days)
+  if (filters.dateRange) {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - (filters.dateRange * 24 * 60 * 60 * 1000));
+    filteredListings = filteredListings.filter(listing => {
+      const listingDate = new Date(listing.dateAdded);
+      return listingDate >= cutoff;
+    });
+  }
+  
+  // Filter by sizes
+  if (filters.sizes && filters.sizes.length > 0) {
+    filteredListings = filteredListings.filter(listing => {
+      // If the listing has sizes array, check if any of the sizes match the filter
+      if (listing.sizes && listing.sizes.length > 0) {
+        return filters.sizes!.some(size => 
+          listing.sizes!.some(listingSize => 
+            listingSize.toLowerCase().includes(size.toLowerCase())
+          )
+        );
+      }
+      // Otherwise, try to find size mentions in the text
+      return filters.sizes!.some(size => 
+        listing.text.toLowerCase().includes(size.toLowerCase())
+      );
+    });
   }
   
   return filteredListings;
@@ -410,22 +424,41 @@ export async function getConditionsWithCounts(filters: FilterCriteria = {}) {
  * Get sizes with counts based on other filters
  */
 export async function getSizesWithCounts(filters: FilterCriteria = {}) {
-  // Create a copy of filters without the size
-  const { size, ...otherFilters } = filters;
+  // Create a copy of filters without the sizes
+  const { sizes, ...otherFilters } = filters;
   const filteredListings = await filterListings(otherFilters);
   
-  // Define common sizes
-  const sizes = ['Small', 'Medium', 'Large', 'XL', 'XXL'];
+  // Define common sizes to look for
+  const commonSizes = [
+    // Clothing sizes
+    'Newborn', '0-3m', '3-6m', '6-9m', '9-12m', '12-18m', '18-24m',
+    '2-3y', '3-4y', '4-5y', '5-6y',
+    'XS', 'S', 'M', 'L', 'XL', 'XXL',
+    // Numeric sizes (could be clothing or shoe sizes)
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+    // EU shoe sizes
+    '16', '17', '18', '19', '20', '21', '22', '23', '24', '25'
+  ];
   
-  return sizes.map(s => {
-    // Since we don't have a size field in our Supabase data,
-    // we'll look for size mentions in the text
-    const count = filteredListings.filter(listing => 
-      listing.text.toLowerCase().includes(s.toLowerCase())
-    ).length;
+  const sizeObjects = commonSizes.map(sizeName => {
+    // Count listings with this size in the sizes array or in the text
+    const count = filteredListings.filter(listing => {
+      // Check in the sizes array first
+      if (listing.sizes && listing.sizes.length > 0) {
+        return listing.sizes.some(s => 
+          s.toLowerCase().includes(sizeName.toLowerCase()) ||
+          sizeName.toLowerCase().includes(s.toLowerCase())
+        );
+      }
+      // Fallback to text search
+      return listing.text.toLowerCase().includes(sizeName.toLowerCase());
+    }).length;
     
-    return { name: s, count };
-  }).filter(item => item.count > 0);
+    return { name: sizeName, count };
+  });
+  
+  // Only return sizes that have at least one listing
+  return sizeObjects.filter(item => item.count > 0);
 }
 
 /**

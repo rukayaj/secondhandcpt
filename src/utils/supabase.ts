@@ -20,6 +20,7 @@ export interface ListingRecord {
   checked_on: string | undefined;
   category: string | undefined;
   is_iso: boolean | undefined; // Flag for "In Search Of" listings
+  sizes: string[] | undefined; // Array of size values
 }
 
 // Create a Supabase client
