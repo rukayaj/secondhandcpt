@@ -27,6 +27,9 @@ async function addListing(listing) {
     // Format date as ISO string for PostgreSQL compatibility
     const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
     
+    // Format sold date if available
+    const soldDateString = listing.soldDate instanceof Date ? listing.soldDate.toISOString() : listing.soldDate;
+    
     // Format the listing for the database
     const dbListing = {
       whatsapp_group: listing.whatsappGroup,
@@ -39,7 +42,14 @@ async function addListing(listing) {
       collection_areas: listing.collectionAreas || [],
       date_added: new Date().toISOString(),
       is_iso: listing.isISO || false,
-      category: listing.category || 'Uncategorised'
+      category: listing.category || 'Uncategorised',
+      title: listing.title || 'Untitled',
+      // Add sold status fields
+      is_sold: listing.isSold || false,
+      sold_date: soldDateString || null,
+      // Add multi-message fields
+      is_multi_message: listing.isMultiUserMessage || false,
+      message_count: listing.messageCount || 1
     };
     
     // Only add phone_number if the column exists in the database schema
@@ -145,6 +155,16 @@ async function updateListing(id, updates) {
     if (updates.collectionAreas) dbUpdates.collection_areas = updates.collectionAreas;
     if (updates.category) dbUpdates.category = updates.category;
     if (updates.isISO !== undefined) dbUpdates.is_iso = updates.isISO;
+    if (updates.title) dbUpdates.title = updates.title;
+    
+    // Add support for sold status updates
+    if (updates.isSold !== undefined) dbUpdates.is_sold = updates.isSold;
+    if (updates.soldDate) {
+      // Format sold date as ISO string
+      dbUpdates.sold_date = updates.soldDate instanceof Date 
+        ? updates.soldDate.toISOString() 
+        : updates.soldDate;
+    }
     
     // Add last updated timestamp
     dbUpdates.last_updated = new Date().toISOString();
@@ -611,6 +631,176 @@ async function findDuplicateListings(options = {}) {
   }
 }
 
+/**
+ * Get the latest message timestamp for each WhatsApp group in the database
+ * @returns {Promise<Object>} - Object with group names as keys and timestamps as values
+ */
+async function getLatestMessageTimestampsByGroup() {
+  try {
+    const supabase = getAdminClient();
+    
+    // Query to get the latest message timestamp for each WhatsApp group
+    const { data, error } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('whatsapp_group, date')
+      .order('date', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching latest timestamps:', error);
+      return {};
+    }
+    
+    // Create a map of group name to latest timestamp
+    const latestTimestamps = {};
+    data.forEach(listing => {
+      // Only store the timestamp if it's newer than what we already have
+      if (!latestTimestamps[listing.whatsapp_group] || 
+          new Date(listing.date) > new Date(latestTimestamps[listing.whatsapp_group])) {
+        latestTimestamps[listing.whatsapp_group] = listing.date;
+      }
+    });
+    
+    return latestTimestamps;
+  } catch (error) {
+    console.error('Error in getLatestMessageTimestampsByGroup:', error);
+    return {};
+  }
+}
+
+/**
+ * Mark a listing as sold
+ * 
+ * @param {string} id - The ID of the listing to mark as sold
+ * @param {Date|string} soldDate - The date when the item was sold (optional, defaults to current date)
+ * @returns {Promise<Object>} - The updated listing
+ */
+async function markListingAsSold(id, soldDate = new Date()) {
+  try {
+    // Format the sold date for database
+    const formattedSoldDate = soldDate instanceof Date 
+      ? soldDate.toISOString() 
+      : soldDate;
+    
+    // Update the listing
+    return updateListing(id, {
+      isSold: true,
+      soldDate: formattedSoldDate
+    });
+  } catch (error) {
+    console.error('Error in markListingAsSold:', error);
+    throw error;
+  }
+}
+
+/**
+ * Find listings that may be sold based on recent WhatsApp messages
+ * @param {string} groupName - The WhatsApp group name to search in
+ * @param {string} sender - The sender's ID to search for
+ * @param {Array} keywords - Keywords that indicate an item is sold (e.g., 'sold', 'x')
+ * @param {number} days - Number of days back to search for listings
+ * @returns {Promise<Array>} - Array of listings that might be sold
+ */
+async function findPotentiallySoldListings(groupName, sender, keywords = ['sold', 'x'], days = 30) {
+  try {
+    const supabase = getAdminClient();
+    
+    // Calculate the date threshold
+    const dateThreshold = new Date();
+    dateThreshold.setDate(dateThreshold.getDate() - days);
+    
+    // Find all active listings from this sender in this group
+    const { data: listings, error } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('*')
+      .eq('whatsapp_group', groupName)
+      .eq('sender', sender)
+      .eq('is_sold', false)
+      .gte('date', dateThreshold.toISOString());
+    
+    if (error) {
+      throw new Error(`Error finding listings: ${error.message}`);
+    }
+    
+    if (!listings || listings.length === 0) {
+      return [];
+    }
+    
+    // Return the listings for further processing
+    return listings.map(listing => ({
+      id: listing.id,
+      title: listing.title,
+      date: listing.date,
+      text: listing.text,
+      price: listing.price,
+      whatsappGroup: listing.whatsapp_group,
+      sender: listing.sender
+    }));
+  } catch (error) {
+    console.error('Error in findPotentiallySoldListings:', error);
+    return [];
+  }
+}
+
+/**
+ * Delete listings that are older than a specified timestamp for a given WhatsApp group
+ * This is used to clean up listings whose messages have expired from WhatsApp
+ * 
+ * @param {string} groupName - The name of the WhatsApp group
+ * @param {number} timestampSeconds - Unix timestamp in seconds of the oldest message still in the group
+ * @returns {Promise<{deleted: number, error: any}>} - Number of deleted listings and any error
+ */
+async function deleteExpiredListings(groupName, timestampSeconds) {
+  try {
+    // Convert Unix timestamp (seconds) to ISO string for database comparison
+    const oldestMessageDate = new Date(timestampSeconds * 1000).toISOString();
+    
+    console.log(`Deleting listings older than ${oldestMessageDate} for group "${groupName}"...`);
+    
+    const supabase = getAdminClient();
+    
+    // Find listings to delete (for logging purposes)
+    const { data: expiredListings, error: countError } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('id, title, date')
+      .eq('whatsapp_group', groupName)
+      .lt('date', oldestMessageDate);
+    
+    if (countError) {
+      console.error(`Error finding expired listings: ${countError.message}`);
+      return { deleted: 0, error: countError };
+    }
+    
+    // If no expired listings found, return early
+    if (!expiredListings || expiredListings.length === 0) {
+      console.log(`No expired listings found for group "${groupName}"`);
+      return { deleted: 0, error: null };
+    }
+    
+    console.log(`Found ${expiredListings.length} expired listings to delete for group "${groupName}"`);
+    
+    // Delete the expired listings
+    const { error: deleteError } = await supabase
+      .from(TABLES.LISTINGS)
+      .delete()
+      .eq('whatsapp_group', groupName)
+      .lt('date', oldestMessageDate);
+    
+    if (deleteError) {
+      console.error(`Error deleting expired listings: ${deleteError.message}`);
+      return { deleted: 0, error: deleteError };
+    }
+    
+    return { 
+      deleted: expiredListings.length, 
+      error: null,
+      expiredListings // Return the list of deleted listings for reference
+    };
+  } catch (error) {
+    console.error(`Error in deleteExpiredListings: ${error.message}`);
+    return { deleted: 0, error };
+  }
+}
+
 module.exports = {
   addListing,
   addListings,
@@ -621,5 +811,9 @@ module.exports = {
   searchListings,
   getListingsWithMissingImages,
   deleteListing,
-  findDuplicateListings
+  findDuplicateListings,
+  getLatestMessageTimestampsByGroup,
+  markListingAsSold,
+  findPotentiallySoldListings,
+  deleteExpiredListings,
 }; 

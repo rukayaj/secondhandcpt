@@ -16,11 +16,12 @@
  * 
  * Options:
  *   --verbose           Show detailed output
- *   --upload-images     Upload images to Supabase Storage
+ *   --skip-images       Skip processing and uploading images to Supabase Storage
  *   --check-images      Check for missing images in Supabase Storage
  *   --days=<n>          Number of days of history to fetch (default: 30)
  *   --limit=<n>         Limit number of messages per group
  *   --ignore-last-date  Ignore the last import date and use days parameter
+ *   --skip-sync         Skip synchronization of expired listings
  */
 
 require('dotenv').config({ path: '.env.local' });
@@ -32,7 +33,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Import utility modules
 const { getLastImportDate, updateLastImportDate } = require('../../src/utils/metadataUtils');
-const { listingExists, addListing } = require('../../src/utils/dbUtils');
+const { listingExists, addListing, getLatestMessageTimestampsByGroup, deleteExpiredListings } = require('../../src/utils/dbUtils');
 
 // Import our consolidated utility modules
 const { 
@@ -80,11 +81,12 @@ WHATSAPP_GROUPS.forEach(group => {
 // Parse command line arguments
 program
   .option('-v, --verbose', 'Show detailed output')
-  .option('--upload-images', 'Upload images to Supabase Storage')
+  .option('--skip-images', 'Skip processing and uploading images to Supabase Storage')
   .option('--check-images', 'Check for missing images in Supabase Storage')
   .option('--days <n>', 'Number of days of history to fetch', parseInt, 30)
   .option('--limit <n>', 'Limit number of messages per group', parseInt)
   .option('--ignore-last-date', 'Ignore the last import date and use days parameter')
+  .option('--skip-sync', 'Skip synchronization of expired listings')
   .parse(process.argv);
 
 const options = program.opts();
@@ -102,12 +104,596 @@ const GROUP_MAPPING = WHATSAPP_GROUPS.reduce((map, group) => {
 }, {});
 
 /**
+ * Group related messages by sender and message context
+ * This helps identify when multiple messages belong to the same conversation thread
+ * 
+ * @param {Array} messages - All fetched messages
+ * @param {number} timeThresholdHours - Time window in hours to consider messages from the same user as potentially related (default: 72 = 3 days)
+ * @returns {Array} - Array of user message groups, each containing all messages from a single user within the timeframe
+ */
+async function groupRelatedMessages(messages, timeThresholdHours = 72) {
+  // First, group all messages by sender and whatsapp group
+  const senderGroups = {};
+  
+  messages.forEach(message => {
+    const key = `${message.sender || 'unknown'}_${message.whatsappGroup}`;
+    if (!senderGroups[key]) {
+      senderGroups[key] = [];
+    }
+    senderGroups[key].push(message);
+  });
+  
+  // Sort each sender's messages by timestamp
+  Object.keys(senderGroups).forEach(key => {
+    senderGroups[key].sort((a, b) => a.timestamp - b.timestamp);
+  });
+  
+  // Process each sender's messages to identify reply chains and related messages
+  const userMessageGroups = [];
+  Object.values(senderGroups).forEach(senderMessages => {
+    if (senderMessages.length === 0) return;
+    
+    // Extract quoted message info when available
+    senderMessages.forEach(message => {
+      // Add a property to track if this message is a reply to another message
+      message.isReply = Boolean(message.quotedMsg);
+      message.quotedMsgId = message.quotedMsg?.id;
+      
+      // Check if message contains an "x" or "sold" marker
+      message.containsSoldMarker = 
+        (message.body?.toLowerCase().trim() === 'x') || 
+        (message.body?.toLowerCase().includes('sold')) ||
+        (message.body?.toLowerCase().includes(' x ')) ||
+        (message.body?.toLowerCase().endsWith(' x'));
+    });
+    
+    // Add this sender's message group to the result
+    userMessageGroups.push(senderMessages);
+  });
+  
+  console.log(`Grouped messages into ${userMessageGroups.length} user message groups`);
+  return userMessageGroups;
+}
+
+/**
+ * Process message groups with Gemini API to extract structured listing data
+ * @param {Array} userMessageGroups - Array of user message groups from groupRelatedMessages
+ * @param {Object} options - Additional options for processing
+ * @returns {Promise<Array>} - Array of processed listings
+ */
+async function processGroupsWithGemini(userMessageGroups, options = {}) {
+  const results = [];
+  const batchSize = 3; // Process only 3 user groups at a time to avoid rate limiting
+  
+  console.log(`Processing ${userMessageGroups.length} user message groups...`);
+  
+  for (let i = 0; i < userMessageGroups.length; i += batchSize) {
+    const batch = userMessageGroups.slice(i, i + batchSize);
+    console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(userMessageGroups.length/batchSize)}...`);
+    
+    for (const userMessages of batch) {
+      if (userMessages.length === 0) continue;
+      
+      // Process all messages from this user as a group
+      const extractedListings = await processUserMessageGroup(userMessages);
+      
+      if (extractedListings && extractedListings.length > 0) {
+        results.push(...extractedListings);
+      }
+      
+      // Increase delay between user groups to 5 seconds
+      console.log('Waiting 5 seconds before processing next user group...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    
+    // Add a longer delay between batches to avoid rate limiting (15 seconds)
+    if (i + batchSize < userMessageGroups.length) {
+      console.log(`Waiting 15 seconds before processing next batch...`);
+      await new Promise(resolve => setTimeout(resolve, 15000));
+    }
+  }
+  
+  return results.filter(item => item);
+}
+
+/**
+ * Process all messages from a single user to extract listings
+ * @param {Array} userMessages - All messages from a single user
+ * @returns {Promise<Array>} - Array of listings extracted from the user's messages
+ */
+async function processUserMessageGroup(userMessages) {
+  const sender = userMessages[0].sender;
+  const whatsappGroup = userMessages[0].whatsappGroup;
+  
+  console.log(`Processing ${userMessages.length} messages from ${sender} in ${whatsappGroup}`);
+  
+  // Join message bodies with clear separators for context
+  const messagesText = userMessages.map((msg, i) => {
+    // Convert Unix timestamp to readable date
+    const dateStr = new Date(msg.timestamp * 1000).toLocaleString();
+    
+    // Add information about replies
+    let replyInfo = '';
+    if (msg.isReply) {
+      replyInfo = ' (REPLY TO PREVIOUS MESSAGE)';
+    }
+    
+    // Add sold marker info
+    let soldInfo = '';
+    if (msg.containsSoldMarker) {
+      soldInfo = ' (MARKED AS SOLD)';
+    }
+    
+    return `Message ${i+1} (${dateStr})${replyInfo}${soldInfo}:\n${msg.body}`;
+  }).join('\n\n---\n\n');
+  
+  // Collect all media URLs from all messages
+  const imageUrls = userMessages
+    .map(msg => [msg.mediaUrl, msg.quotedMsg?.mediaUrl])
+    .flat()
+    .filter(url => url);
+  
+  // Create a synthetic message object containing all user messages
+  const combinedMessageData = {
+    body: messagesText,
+    sender,
+    whatsappGroup,
+    mediaUrl: userMessages.find(msg => msg.mediaUrl)?.mediaUrl,
+    imageUrls,
+    isMultiUserMessage: true,
+    messageCount: userMessages.length
+  };
+  
+  // Process the combined user messages with Gemini
+  const extractedData = await extractListingsWithGemini(combinedMessageData);
+  
+  if (!extractedData || !Array.isArray(extractedData)) {
+    console.log(`No valid listings extracted from messages by ${sender}`);
+    return [];
+  }
+  
+  // Process each extracted listing
+  const processedListings = [];
+  
+  for (let i = 0; i < extractedData.length; i++) {
+    const extractedListing = extractedData[i];
+    
+    // Skip invalid listings
+    if (!extractedListing || extractedListing.type === 'CONVERSATION') {
+      continue;
+    }
+    
+    // Find the most likely message that this listing came from
+    // This is a heuristic based on matching content
+    const relatedMessage = findRelatedMessage(extractedListing, userMessages);
+    
+    // Add metadata to the listing
+    extractedListing.messageId = relatedMessage?.id || userMessages[0].id;
+    extractedListing.timestamp = relatedMessage?.timestamp || userMessages[0].timestamp;
+    extractedListing.date = new Date((relatedMessage?.timestamp || userMessages[0].timestamp) * 1000);
+    extractedListing.sender = sender;
+    extractedListing.whatsappGroup = whatsappGroup;
+    
+    // Handle images
+    if (relatedMessage?.mediaUrl) {
+      extractedListing.imageUrls = [relatedMessage.mediaUrl];
+    } else {
+      extractedListing.imageUrls = imageUrls;
+    }
+    extractedListing.hasImages = extractedListing.imageUrls.length > 0;
+    
+    // Add the raw message text
+    extractedListing.rawText = relatedMessage?.body || combinedMessageData.body;
+    
+    // Add multi-message metadata
+    extractedListing.isMultiUserMessage = true;
+    extractedListing.messageCount = userMessages.length;
+    
+    // Handle sold status
+    if (extractedListing.is_sold) {
+      // Find the message that marked this item as sold, if any
+      const soldMessage = userMessages.find(msg => 
+        msg.containsSoldMarker
+      );
+      
+      if (soldMessage) {
+        extractedListing.soldTimestamp = soldMessage.timestamp;
+        extractedListing.soldDate = new Date(soldMessage.timestamp * 1000);
+      }
+    }
+    
+    processedListings.push(extractedListing);
+  }
+  
+  return processedListings;
+}
+
+/**
+ * Find the most relevant message that a listing came from
+ * @param {Object} listing - Extracted listing data
+ * @param {Array} messages - Array of messages to search
+ * @returns {Object} - The most relevant message
+ */
+function findRelatedMessage(listing, messages) {
+  if (!listing || !Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+  
+  // If there's only one message, return it
+  if (messages.length === 1) {
+    return messages[0];
+  }
+  
+  // Try to find a message that contains the listing title
+  if (listing.title) {
+    const matchByTitle = messages.find(msg => 
+      msg.body && msg.body.toLowerCase().includes(listing.title.toLowerCase())
+    );
+    
+    if (matchByTitle) {
+      return matchByTitle;
+    }
+  }
+  
+  // Try to find a message that contains the price
+  if (listing.price) {
+    const priceStr = listing.price.toString();
+    const matchByPrice = messages.find(msg => 
+      msg.body && msg.body.includes(priceStr)
+    );
+    
+    if (matchByPrice) {
+      return matchByPrice;
+    }
+  }
+  
+  // If no specific match found, return the first message with media if available
+  const messageWithMedia = messages.find(msg => msg.mediaUrl);
+  if (messageWithMedia) {
+    return messageWithMedia;
+  }
+  
+  // Default to the first message
+  return messages[0];
+}
+
+/**
+ * Extract multiple listings from user messages using Gemini API
+ * @param {Object} messageData - Combined message data to process
+ * @returns {Promise<Array|null>} - Array of extracted listings or null
+ */
+async function extractListingsWithGemini(messageData) {
+  if (!messageData.body || messageData.body.trim() === '') {
+    console.debug('Skipping message with no text content');
+    return null;
+  }
+
+  const isMultiMessage = messageData.body.includes('Message 1 (') && messageData.body.includes('---');
+
+  try {
+    // Use gemini-1.5-pro model
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+    
+    // Create the prompt for multi-user message analysis
+    const prompt = `
+I'll provide a sequence of WhatsApp messages from the same user in a buy/sell group. These messages may contain:
+1. Multiple separate product listings
+2. Updates to previous listings (price changes, additional info)
+3. Messages marking items as sold (often just an "x" or "sold" comment)
+4. Replies to previous messages with additional details
+
+Please analyze all messages together and extract ALL product listings, returning them as an ARRAY of listings.
+A single user might be selling multiple items at once through separate messages.
+
+IMPORTANT RULES:
+- Return an ARRAY of listings, even if there's just one listing.
+- For each listing, if you see "x" or "sold" in a follow-up message related to that item, set is_sold to true and include the timestamp.
+- If you see price updates like "Reduced to R100", use the latest price.
+- If a message is marked as a REPLY TO PREVIOUS MESSAGE, consider it as additional info for the previous listing.
+- If a message is explicitly marked as MARKED AS SOLD, consider the item sold.
+- If a post is asking for an item (e.g. "ISO: looking for a car seat"), set is_iso to true.
+- If there are no valid product listings at all, return an empty array [].
+- A valid listing must at minimum have a title and indicate if it's for sale or ISO.
+
+User's WhatsApp Messages:
+${messageData.body}
+
+Media: ${messageData.imageUrls?.length > 0 ? 'Yes' : 'No'}
+Group: ${messageData.whatsappGroup || 'Unknown'}
+
+Return an ARRAY of listings, where each listing has these fields:
+{
+  "title": "Brief product title",
+  "price": "Price with currency symbol (R100, R50, etc.) or 'Free' if item is being given away",
+  "condition": "New, Used, etc.",
+  "collection_areas": "Where to collect (as a string or array of strings)",
+  "description": "Full description",
+  "is_free": boolean,
+  "is_iso": boolean (true if this is an 'In Search Of' post, not a sales listing),
+  "is_sold": boolean (true if the item has been marked as sold/taken),
+  "size": "Size if mentioned",
+  "category": "Category of item (Furniture, Clothing, Toys, Electronics, Kids Accessories, Baby Essentials, Other)"
+}
+
+EXAMPLES:
+
+Example 1 (Multiple items in separate messages):
+Message 1 (7/15/2023, 10:30:45 AM):
+Baby walker, good condition, R200. Collection from Rondebosch.
+
+---
+
+Message 2 (7/15/2023, 2:45:20 PM):
+Selling my toddler's bike for R350. 3-5 years. Used but in excellent condition. Collection from Rondebosch.
+
+---
+
+Message 3 (7/16/2023, 9:12:33 AM) (REPLY TO PREVIOUS MESSAGE):
+The bike has training wheels included.
+
+OUTPUT:
+[
+  {
+    "title": "Baby walker",
+    "price": "R200",
+    "condition": "Good condition",
+    "collection_areas": "Rondebosch",
+    "description": "Baby walker, good condition",
+    "is_free": false,
+    "is_iso": false,
+    "is_sold": false,
+    "size": null,
+    "category": "Baby Essentials"
+  },
+  {
+    "title": "Toddler bike",
+    "price": "R350",
+    "condition": "Used - Excellent condition",
+    "collection_areas": "Rondebosch",
+    "description": "Toddler's bike for 3-5 years with training wheels included",
+    "is_free": false,
+    "is_iso": false,
+    "is_sold": false,
+    "size": "3-5 years",
+    "category": "Toys"
+  }
+]
+
+Example 2 (Price update and sold marker):
+Message 1 (7/15/2023, 10:30:45 AM):
+H&M maternity jeans, size Large, excellent condition, R200. Collection from Kirstenhof.
+
+---
+
+Message 2 (7/15/2023, 4:32:15 PM):
+Reduced to R150
+
+---
+
+Message 3 (7/16/2023, 8:45:20 AM) (MARKED AS SOLD):
+x
+
+OUTPUT:
+[
+  {
+    "title": "H&M maternity jeans",
+    "price": "R150",
+    "condition": "Excellent condition",
+    "collection_areas": "Kirstenhof",
+    "description": "H&M maternity jeans, size Large, excellent condition, originally R200, reduced to R150",
+    "is_free": false,
+    "is_iso": false,
+    "is_sold": true,
+    "size": "Large",
+    "category": "Clothing"
+  }
+]
+
+Example 3 (Mixed ISO and selling items):
+Message 1 (7/15/2023, 10:30:45 AM):
+ISO: Baby cot for newborn, willing to collect anywhere in Southern Suburbs
+
+---
+
+Message 2 (7/15/2023, 2:45:20 PM):
+Selling my toddler's clothes bundle. 5 items, size 2-3 years, mix of Woolworths, Cotton On and H&M. R250 for all. Collection from Kenilworth.
+
+OUTPUT:
+[
+  {
+    "title": "Looking for Baby cot for newborn",
+    "price": null,
+    "condition": null,
+    "collection_areas": "Southern Suburbs",
+    "description": "ISO: Baby cot for newborn, willing to collect anywhere in Southern Suburbs",
+    "is_free": false,
+    "is_iso": true,
+    "is_sold": false,
+    "size": "Newborn",
+    "category": "Furniture"
+  },
+  {
+    "title": "Toddler's clothes bundle",
+    "price": "R250",
+    "condition": "Used",
+    "collection_areas": "Kenilworth",
+    "description": "Toddler's clothes bundle. 5 items, size 2-3 years, mix of Woolworths, Cotton On and H&M.",
+    "is_free": false,
+    "is_iso": false,
+    "is_sold": false,
+    "size": "2-3 years",
+    "category": "Clothing"
+  }
+]
+`;
+
+    // Set temperature higher to allow for more flexibility
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2000, // Increase token limit for multiple listings
+      },
+    });
+
+    const response = result.response;
+    const text = response.text();
+    
+    // Extract JSON from the response
+    let jsonStr = text.trim();
+    
+    // Remove any markdown formatting if present
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.substring(3, jsonStr.length - 3).trim();
+    }
+    
+    // Parse the JSON response
+    try {
+      // Attempt to parse as an array of listings
+      const jsonResponse = JSON.parse(jsonStr);
+      
+      if (!Array.isArray(jsonResponse)) {
+        // If not an array, wrap in an array if it's a valid object
+        if (jsonResponse && typeof jsonResponse === 'object') {
+          console.log(`Received a single listing object instead of an array, converting to array`);
+          return [jsonResponse];
+        } else if (jsonResponse === null) {
+          console.log(`Message identified as not containing any product listings`);
+          return [];
+        } else {
+          console.error(`Invalid response format (not an array or object):`, jsonResponse);
+          return [];
+        }
+      }
+      
+      console.log(`Extracted ${jsonResponse.length} listings from user messages`);
+      
+      // Filter out any null entries
+      const validListings = jsonResponse.filter(listing => listing !== null);
+      
+      if (validListings.length === 0) {
+        console.log(`No valid listings found in the extracted data`);
+        return [];
+      }
+      
+      return validListings;
+    } catch (parseError) {
+      console.error(`Error parsing JSON response: ${parseError.message}`);
+      console.debug(`Response was: ${jsonStr}`);
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error with Gemini API: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * Find the oldest message still available in a WhatsApp group
+ * @param {string} chatId - The chat ID of the WhatsApp group
+ * @returns {Promise<number|null>} - Unix timestamp in seconds of the oldest message, or null if error
+ */
+async function findOldestMessageTimestamp(chatId) {
+  try {
+    console.log(`Finding oldest message for chat ID: ${chatId}...`);
+    
+    // Get the oldest messages from the group (using sort=asc and limit=1)
+    const response = await axios.get(`${WAHA_BASE_URL}/api/messages`, {
+      params: {
+        session: 'default',
+        chatId: chatId,
+        limit: 1,
+        fromMe: false,
+        sort: 'asc' // Sort ascending to get the oldest message first
+      }
+    });
+    
+    if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+      const oldestMessage = response.data[0];
+      console.log(`Oldest message found from ${new Date(oldestMessage.timestamp * 1000).toISOString()}`);
+      return oldestMessage.timestamp;
+    } else {
+      console.warn(`No messages found for chat ID: ${chatId}`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`Error finding oldest message: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Sync listings by removing ones whose WhatsApp messages have expired
+ * @param {Object} options - Options for the sync process
+ * @returns {Promise<Object>} - Statistics on the sync process
+ */
+async function syncExpiredListings(options = {}) {
+  const stats = {
+    groupsProcessed: 0,
+    totalListingsDeleted: 0,
+    errors: 0
+  };
+  
+  console.log('Syncing expired listings...');
+  
+  for (const group of WHATSAPP_GROUPS) {
+    if (!group.chatId) {
+      console.log(`Skipping group "${group.name}" - no chat ID configured`);
+      continue;
+    }
+    
+    try {
+      // Find the oldest message timestamp for this group
+      const oldestTimestamp = await findOldestMessageTimestamp(group.chatId);
+      
+      if (!oldestTimestamp) {
+        console.log(`Could not determine oldest message for "${group.name}", skipping sync`);
+        continue;
+      }
+      
+      // Delete listings older than the oldest message
+      const { deleted, error, expiredListings } = await deleteExpiredListings(group.name, oldestTimestamp);
+      
+      if (error) {
+        console.error(`Error syncing expired listings for "${group.name}": ${error.message}`);
+        stats.errors++;
+      } else {
+        if (options.verbose && deleted > 0 && expiredListings) {
+          console.log(`Deleted ${deleted} expired listings from "${group.name}":`);
+          expiredListings.forEach(listing => {
+            console.log(`- "${listing.title}" (${listing.date})`);
+          });
+        } else {
+          console.log(`Deleted ${deleted} expired listings from "${group.name}"`);
+        }
+        
+        stats.totalListingsDeleted += deleted;
+      }
+      
+      stats.groupsProcessed++;
+    } catch (error) {
+      console.error(`Error processing group "${group.name}" for sync: ${error.message}`);
+      stats.errors++;
+    }
+  }
+  
+  console.log('Sync complete:');
+  console.log(`- Groups processed: ${stats.groupsProcessed}`);
+  console.log(`- Total listings deleted: ${stats.totalListingsDeleted}`);
+  console.log(`- Errors: ${stats.errors}`);
+  
+  return stats;
+}
+
+/**
  * Main function to import WhatsApp listings
  * This function orchestrates the entire import process
  */
 async function importWhatsAppListings() {
   try {
-    console.log('Starting WAHA-Gemini WhatsApp import process...\n');
+    console.log('Starting WAHA-Gemini WhatsApp import and sync process...\n');
     
     // Step 1: Check WAHA session status
     console.log('Step 1: Checking WAHA session status...');
@@ -138,17 +724,37 @@ async function importWhatsAppListings() {
       console.log(`Found ${configuredGroups.length} out of ${WHATSAPP_GROUPS.length} configured groups`);
     }
     
+    // NEW STEP: Sync listings by removing expired ones
+    if (!options.skipSync) {
+      console.log('\nStep 2.1: Syncing listings by removing expired ones...');
+      await syncExpiredListings(options);
+    } else {
+      console.log('\nSkipping listing sync (--skip-sync flag was used)');
+    }
+    
+    // Step 2.5: Get latest message timestamps from database
+    console.log('\nStep 2.5: Getting latest message timestamps from database...');
+    const latestTimestamps = await getLatestMessageTimestampsByGroup();
+    
+    const groupsWithTimestamps = Object.keys(latestTimestamps).length;
+    console.log(`Found timestamps for ${groupsWithTimestamps} groups in database`);
+    
     // Step 3: Fetch messages from all groups
     console.log('\nStep 3: Fetching messages from WhatsApp groups...');
-    const allMessages = await fetchAllGroupMessages(options.days, options);
+    const allMessages = await fetchAllGroupMessages(options.days, latestTimestamps, options);
     if (allMessages.length === 0) {
       console.log('No messages found or unable to fetch messages');
       return;
     }
     
-    // Step 4: Process messages with Gemini
-    console.log('\nStep 4: Processing messages with Gemini API...');
-    const processedListings = await processMessagesWithGemini(allMessages, options);
+    // Step 3.5: Group related messages
+    console.log('\nStep 3.5: Grouping related messages...');
+    const messageGroups = await groupRelatedMessages(allMessages, 72); // 72-hour window
+    console.log(`Grouped ${allMessages.length} messages into ${messageGroups.length} message groups`);
+    
+    // Step 4: Process message groups with Gemini
+    console.log('\nStep 4: Processing message groups with Gemini API...');
+    const processedListings = await processGroupsWithGemini(messageGroups, options);
     
     if (processedListings.length === 0) {
       console.log('No listings extracted from messages');
@@ -157,13 +763,15 @@ async function importWhatsAppListings() {
     
     console.log(`Extracted ${processedListings.length} listings from ${allMessages.length} messages`);
     
-    // Step 5: Process images if enabled
+    // Step 5: Process images if listings have images (always do this unless explicitly disabled)
     let listings = processedListings;
-    if (options.uploadImages) {
+    const skipImageProcessing = options.skipImages === true;
+    
+    if (skipImageProcessing) {
+      console.log('\nSkipping image processing (--skip-images flag was used)');
+    } else {
       console.log('\nStep 5: Processing and uploading images...');
       listings = await processImages(processedListings, options.verbose);
-    } else {
-      console.log('\nSkipping image processing (use --upload-images to enable)');
     }
     
     // Step 6: Add new listings to the database
@@ -185,16 +793,16 @@ async function importWhatsAppListings() {
  * @param {Object} options - Additional options including message limit
  * @returns {Promise<Array>} - Array of messages
  */
-async function fetchAllGroupMessages(days, options = {}) {
+async function fetchAllGroupMessages(days, latestTimestamps = {}, options = {}) {
   const allMessages = [];
   
-  // Set a fixed recent date based on days parameter
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-  const startTimestamp = Math.floor(startDate.getTime() / 1000); // Convert to seconds for WAHA
+  // Set a fallback date based on days parameter
+  const fallbackDate = new Date();
+  fallbackDate.setDate(fallbackDate.getDate() - days);
+  const fallbackTimestamp = Math.floor(fallbackDate.getTime() / 1000); // Convert to seconds for WAHA
   
-  console.log(`Using fixed date range: Last ${days} days (from ${startDate.toISOString()})`);
-  console.log(`Unix timestamp: ${startTimestamp}`);
+  console.log(`Using fallback date range: Last ${days} days (from ${fallbackDate.toISOString()})`);
+  console.log(`Fallback Unix timestamp: ${fallbackTimestamp}`);
   
   // First, check if the session is authenticated
   try {
@@ -225,6 +833,24 @@ async function fetchAllGroupMessages(days, options = {}) {
       // Determine API limit (use options.limit if defined, otherwise default to 100)
       const apiLimit = options.limit || 100;
       
+      // Use group-specific timestamp if available, otherwise use fallback
+      let fromTimestamp = fallbackTimestamp;
+      
+      if (latestTimestamps[group.name]) {
+        // Convert database timestamp to Unix timestamp and subtract 1 hour buffer
+        // The buffer ensures we don't miss any messages due to timezone or slight time differences
+        const dbDate = new Date(latestTimestamps[group.name]);
+        const bufferMs = 60 * 60 * 1000; // 1 hour in milliseconds
+        const timestampWithBuffer = Math.floor((dbDate.getTime() - bufferMs) / 1000);
+        
+        // Use the more recent timestamp between the fallback and the database timestamp
+        fromTimestamp = Math.max(fallbackTimestamp, timestampWithBuffer);
+        
+        console.log(`Using last message timestamp for "${group.name}": ${new Date(fromTimestamp * 1000).toISOString()}`);
+      } else {
+        console.log(`No previous messages found for "${group.name}", using fallback date`);
+      }
+      
       // Make the API call to get messages
       const response = await axios.get(`${WAHA_BASE_URL}/api/messages`, {
         params: {
@@ -232,7 +858,7 @@ async function fetchAllGroupMessages(days, options = {}) {
           chatId: group.chatId,
           limit: apiLimit,
           fromMe: false,
-          fromTimestamp: startTimestamp
+          fromTimestamp: fromTimestamp
         }
       });
       
@@ -252,7 +878,7 @@ async function fetchAllGroupMessages(days, options = {}) {
           console.log(`Limiting to ${options.limit} messages from "${group.name}" (found ${messagesWithGroup.length})`);
         }
         
-        console.log(`Found ${processedMessages.length} messages in "${group.name}"`);
+        console.log(`Found ${processedMessages.length} messages in "${group.name}" since ${new Date(fromTimestamp * 1000).toISOString()}`);
         
         if (processedMessages.length > 0) {
           // Sample message for debugging
@@ -260,258 +886,81 @@ async function fetchAllGroupMessages(days, options = {}) {
           allMessages.push(...processedMessages);
         }
       } else {
-        console.log(`No messages found for ${group.name}`);
+        console.warn(`No valid message data returned for group "${group.name}"`);
       }
     } catch (error) {
-      console.error(`Error fetching messages for ${group.name}:`, error.message);
+      console.error(`Error fetching messages for group "${group.name}":`, error.message);
     }
   }
   
   console.log(`Found ${allMessages.length} total messages`);
-  
-  // Sort messages by timestamp in ascending order
-  return allMessages.sort((a, b) => a.timestamp - b.timestamp);
-}
-
-/**
- * Process messages using Gemini API to extract structured listing data
- * @param {Array} messages - Array of messages from WAHA API
- * @param {Object} options - Additional options for processing
- * @returns {Promise<Array>} - Array of processed listings
- */
-async function processMessagesWithGemini(messages, options = {}) {
-  const results = [];
-  const batchSize = 5; // Reduce batch size to 5 to minimize rate limiting
-  
-  for (let i = 0; i < messages.length; i += batchSize) {
-    const batch = messages.slice(i, i + batchSize);
-    console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(messages.length/batchSize)}...`);
-    
-    for (const message of batch) {
-      // Skip messages with no text content
-      if (!message.body || message.body.trim() === '') {
-        console.log('Skipping message with no text content');
-        continue;
-      }
-      
-      console.log(`\nProcessing message from ${message.sender} in ${message.whatsappGroup}:`);
-      console.log(`"${message.body.substring(0, 100)}${message.body.length > 100 ? '...' : ''}"`);
-      
-      const extractedData = await extractListingWithGemini(message);
-      
-      if (extractedData) {
-        // Skip conversation type messages from results
-        if (extractedData.type === 'CONVERSATION') {
-          console.log(`Skipping conversation message from ${message.sender} in ${message.whatsappGroup}`);
-          continue;
-        }
-        
-        // Add message metadata to the extracted data
-        extractedData.messageId = message.id;
-        extractedData.timestamp = message.timestamp; // Keep the original timestamp
-        // Also add a date field for compatibility with the database functions
-        // This converts the Unix timestamp (seconds) to an ISO date string
-        extractedData.date = message.timestamp ? new Date(message.timestamp * 1000) : new Date(); 
-        extractedData.sender = message.sender;
-        extractedData.whatsappGroup = message.whatsappGroup;
-        extractedData.hasImages = message.mediaUrl || message.quotedMsg?.mediaUrl;
-        extractedData.imageUrls = [message.mediaUrl, message.quotedMsg?.mediaUrl].filter(url => url);
-        extractedData.rawText = message.body;
-        
-        results.push(extractedData);
-      } else {
-        console.log(`Null result from Gemini for message from ${message.sender} in ${message.whatsappGroup}`);
-      }
-      
-      // Increase delay between individual message processing to 2 seconds
-      console.log('Waiting 2 seconds before processing next message...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-    
-    // Add a longer delay between batches to avoid rate limiting (10 seconds)
-    if (i + batchSize < messages.length) {
-      console.log(`Waiting 10 seconds before processing next batch...`);
-      await new Promise(resolve => setTimeout(resolve, 10000));
-    }
-  }
-  
-  return results.filter(item => item && item.type !== 'CONVERSATION');
-}
-
-/**
- * Extract listing data from message using Gemini API
- * @param {Object} messageData - Message data to process
- * @returns {Promise<Object|null>} - Extracted listing data or null if not a listing
- */
-async function extractListingWithGemini(message) {
-  if (!message.body || message.body.trim() === '') {
-    console.debug('Skipping message with no text content');
-    return null;
-  }
-
-  try {
-    // Use gemini-1.5-pro model
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    
-    // Create a simple, direct prompt
-    const prompt = `
-Extract product listing information from this WhatsApp message. If it is NOT a product for sale/giveaway, return null.
-
-WhatsApp Message:
-${message.body}
-
-Media: ${message.hasMedia ? 'Yes' : 'No'}
-Group: ${message.whatsappGroup || 'Unknown'}
-
-Return a JSON object with these fields (or null if not a product listing):
-{
-  "title": "Brief product title",
-  "price": "Price with currency symbol (R100, R50, etc.) or 'Free' if item is being given away",
-  "condition": "New, Used, etc.",
-  "collection_areas": "Where to collect",
-  "description": "Full description",
-  "is_free": boolean,
-  "size": "Size if mentioned",
-  "category": "Category of item"
-}
-
-EXAMPLES:
-
-Example 1:
-"H&M joggers, very comfortable size large, good condition R150, collection in Kirstenhof"
-{
-  "title": "H&M joggers",
-  "price": "R150",
-  "condition": "Good condition",
-  "collection_areas": "Kirstenhof",
-  "description": "H&M joggers, very comfortable size large, good condition",
-  "is_free": false,
-  "size": "Large",
-  "category": "Clothing"
-}
-
-Example 2: 
-"I have a large baby cot in storage that I'm giving away. The cot has 2 x removable sides and a toddler guard which can be used for older children with one of the cot sides removed. Free to whoever can collect from Hout Bay."
-{
-  "title": "Baby cot",
-  "price": "Free",
-  "condition": "Used - damaged",
-  "collection_areas": "Hout Bay",
-  "description": "Large baby cot with 2 removable sides and toddler guard",
-  "is_free": true,
-  "size": "Large",
-  "category": "Furniture"
-}
-
-Example 3:
-"*Cotton on kids Bucket Swim Hat -R100* Size XS/S (52cm head circumference) Size of M/L (54cm head circumference) Brand new | XPosted | Collection Marina Da Gama, Muizenberg."
-{
-  "title": "Cotton on kids Bucket Swim Hat",
-  "price": "R100",
-  "condition": "Brand new",
-  "collection_areas": "Marina Da Gama, Muizenberg",
-  "description": "Cotton on kids Bucket Swim Hat, available in size XS/S (52cm) and M/L (54cm)",
-  "is_free": false,
-  "size": "XS/S (52cm) and M/L (54cm)",
-  "category": "Kids Accessories"
-}
-`;
-
-    // Set temperature higher to allow for more flexibility
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1000,
-      },
-    });
-
-    const response = result.response;
-    const text = response.text();
-    
-    // Extract JSON from the response
-    let jsonStr = text.trim();
-    
-    // Remove any markdown formatting if present
-    if (jsonStr.startsWith('```json')) {
-      jsonStr = jsonStr.substring(7, jsonStr.length - 3).trim();
-    } else if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.substring(3, jsonStr.length - 3).trim();
-    }
-    
-    // Parse the JSON response
-    try {
-      const jsonResponse = JSON.parse(jsonStr);
-      if (jsonResponse === null) {
-        console.debug(`Message identified as not a product listing`);
-        return null;
-      }
-      
-      console.log(`Extracted listing: ${JSON.stringify(jsonResponse, null, 2)}`);
-      return jsonResponse;
-    } catch (parseError) {
-      console.error(`Error parsing JSON response: ${parseError.message}`);
-      console.debug(`Response was: ${jsonStr}`);
-      return null;
-    }
-  } catch (error) {
-    console.error(`Error with Gemini API: ${error.message}`);
-    return null;
-  }
+  return allMessages;
 }
 
 /**
  * Process images from listings
  * @param {Array} listings - Processed listings with image data
  * @param {boolean} verbose - Whether to show detailed output
- * @returns {Promise<void>}
+ * @returns {Promise<Array>} - Updated listings with image paths
  */
 async function processImages(listings, verbose = false) {
   console.log(`Processing images for ${listings.length} listings...`);
   
-  let processedCount = 0;
+  // Create a copy of the listings to avoid modifying the original
+  const updatedListings = [...listings];
+  
+  let listingsWithImages = 0;
+  let processedImageCount = 0;
   let successCount = 0;
   let errorCount = 0;
   
-  for (const listing of listings) {
-    // Skip listings without images
-    if (!listing.images || listing.images.length === 0) {
+  // Create a directory for storing temporary images
+  const tmpDir = path.join(process.cwd(), 'tmp', 'waha-images');
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  
+  for (let j = 0; j < updatedListings.length; j++) {
+    const listing = updatedListings[j];
+    
+    // Check for images from WAHA message
+    const imageUrls = listing.imageUrls || [];
+    
+    if (imageUrls.length === 0) {
+      if (verbose) {
+        console.log(`No images found for listing: ${listing.title || 'Untitled'}`);
+      }
       continue;
     }
     
-    // Create a directory for storing temporary images
-    const tmpDir = path.join(process.cwd(), 'tmp', 'waha-images');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-    
-    processedCount++;
+    listingsWithImages++;
+    const supabaseImagePaths = [];
     
     // Process each image
-    for (let i = 0; i < listing.images.length; i++) {
-      const imageUrl = listing.images[i];
+    for (let i = 0; i < imageUrls.length; i++) {
+      const imageUrl = imageUrls[i];
+      if (!imageUrl) continue;
+      
+      processedImageCount++;
       
       if (verbose) {
-        console.log(`Processing image ${i + 1}/${listing.images.length} for listing: ${listing.title || 'Untitled'}`);
+        console.log(`Processing image ${i + 1}/${imageUrls.length} for listing: ${listing.title || 'Untitled'}`);
       }
       
       try {
+        // Generate a unique ID for the image
+        const imageId = `${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        
         // Download the image from WAHA
-        const localPath = path.join(tmpDir, `image_${Date.now()}_${i}.jpg`);
+        const localPath = path.join(tmpDir, `image_${imageId}.jpg`);
         await downloadImageFromWaha(imageUrl, localPath);
         
         // Upload to Supabase
-        const imagePath = `listings/${listing.id}_${i}.jpg`;
+        const imagePath = `listings/${listing.messageId || j}_${i}_${imageId}.jpg`;
         await uploadImageToSupabase(localPath, imagePath);
         
-        // Update the listing's image path
-        const supabase = getAdminClient();
-        await supabase
-          .from('listings')
-          .update({
-            images: supabase.rpc('array_append', { arr: listing.images, item: imagePath })
-          })
-          .eq('id', listing.id);
+        // Add the image path to the listing's images
+        supabaseImagePaths.push(imagePath);
         
         // Delete the temporary file
         fs.unlinkSync(localPath);
@@ -523,12 +972,19 @@ async function processImages(listings, verbose = false) {
       }
     }
     
-    if (verbose && processedCount % 10 === 0) {
-      console.log(`Processed ${processedCount} listings with images (${successCount} successful, ${errorCount} errors)`);
+    // Update the listing's images with the Supabase Storage paths
+    if (supabaseImagePaths.length > 0) {
+      updatedListings[j].images = supabaseImagePaths;
     }
   }
   
-  console.log(`Finished processing images: ${processedCount} listings, ${successCount} successful uploads, ${errorCount} errors`);
+  console.log(`Finished processing images:`);
+  console.log(`- ${listingsWithImages} listings had images`);
+  console.log(`- ${processedImageCount} total images processed`);
+  console.log(`- ${successCount} successful uploads`);
+  console.log(`- ${errorCount} errors`);
+  
+  return updatedListings;
 }
 
 /**
@@ -544,6 +1000,7 @@ async function addNewListings(listings, verbose = false) {
   const stats = {
     total: listings.length,
     added: 0,
+    soldItems: 0,
     skipped: {
       total: 0,
       alreadyExists: 0,
@@ -560,14 +1017,18 @@ async function addNewListings(listings, verbose = false) {
       // Format timestamp for display - convert Unix timestamp to readable date
       const dateString = listing.timestamp ? new Date(listing.timestamp * 1000).toISOString() : 'Unknown date';
       console.log(`Group: ${listing.whatsappGroup}, Date: ${dateString}`);
-      if (listing.price) console.log(`Price: R${listing.price}`);
+      if (listing.price) console.log(`Price: ${listing.price}`);
       if (listing.condition) console.log(`Condition: ${listing.condition}`);
+      if (listing.is_sold) {
+        console.log(`Status: SOLD (Date: ${listing.soldDate ? listing.soldDate.toISOString() : 'Unknown'})`);
+      }
+      if (listing.isMultiUserMessage) console.log(`Multi-message: Yes (${listing.messageCount} messages)`);
     }
     
     try {
       // Basic validation
       if (!listing.title || listing.title.trim() === '') {
-        console.log(`Skipping listing with no title: "${listing.rawText.substring(0, 50)}..."`);
+        console.log(`Skipping listing with no title: "${listing.rawText?.substring(0, 50)}..."`);
         stats.skipped.total++;
         stats.skipped.invalidData++;
         continue;
@@ -585,26 +1046,59 @@ async function addNewListings(listings, verbose = false) {
         continue;
       }
       
+      // Handle price formatting - ensure it's in the correct format for the database
+      let price = 0;
+      if (listing.price) {
+        if (typeof listing.price === 'number') {
+          // If it's already a number, use it directly
+          price = listing.price;
+        } else if (typeof listing.price === 'string') {
+          // If it's a string, extract the numeric part
+          if (listing.price.toLowerCase() === 'free') {
+            price = 0;
+          } else {
+            // Extract numeric value, handling different formats (R100, 100, R 100)
+            const matches = listing.price.match(/(?:r\s*)?(\d+(?:\.\d+)?)/i);
+            price = matches ? parseFloat(matches[1]) : 0;
+          }
+        }
+      }
+      
+      // Handle collection areas - ensure it's always an array
+      let collectionAreas = [];
+      if (listing.collection_areas) {
+        if (Array.isArray(listing.collection_areas)) {
+          collectionAreas = listing.collection_areas;
+        } else if (typeof listing.collection_areas === 'string') {
+          // Split by comma if it's a comma-separated string
+          collectionAreas = listing.collection_areas.split(',').map(area => area.trim());
+        } else {
+          collectionAreas = [String(listing.collection_areas)];
+        }
+      }
+      
       // Format the listing for database insertion
       const dbListing = {
         title: listing.title,
-        price: listing.price 
-          ? (listing.price.toLowerCase() === 'free' 
-             ? 0 
-             : parseFloat(listing.price.replace(/r/gi, '').trim().split(' ')[0].replace(/,/g, '')) || 0)
-          : 0,
-        description: listing.description,
-        whatsapp_group: listing.whatsappGroup,
+        price: price,
+        description: listing.description || listing.rawText,
+        whatsappGroup: listing.whatsappGroup,
         date: listing.date,
         sender: listing.sender,
         text: listing.rawText,
-        images: [], // Will be updated when images are processed
-        condition: listing.condition,
-        collectionAreas: Array.isArray(listing.collection_areas) ? listing.collection_areas : 
-          (typeof listing.collection_areas === 'string' ? [listing.collection_areas] : []),
-        isISO: listing.is_iso || false,
+        images: listing.images || [], // Will have been populated by processImages if images exist
+        condition: listing.condition || 'Unknown',
+        collectionAreas: collectionAreas,
+        isISO: listing.is_iso || false, // Use the is_iso field from Gemini
         category: listing.category || 'Other',
-        phone_number: listing.phone_number || null
+        // Add fields for multi-message listings
+        isMultiUserMessage: listing.isMultiUserMessage || false,
+        messageCount: listing.messageCount || 1,
+        // Add sold status and date
+        isSold: listing.is_sold || false,
+        soldDate: listing.soldDate || null,
+        // Only add phone number if it's available
+        ...(listing.phone_number && { phone_number: listing.phone_number })
       };
       
       // Add to database
@@ -615,12 +1109,15 @@ async function addNewListings(listings, verbose = false) {
           console.log(`Added listing with ID: ${id}`);
         }
         
-        stats.added++;
+        if (listing.is_sold) {
+          stats.soldItems++;
+        } else {
+          stats.added++;
+        }
+        
         addedListings.push({
           ...dbListing,
-          id,
-          images: listing.images,
-          mediaUrls: listing.imageUrls
+          id
         });
       } else {
         console.log(`Failed to add listing: ${listing.title}`);
@@ -638,6 +1135,7 @@ async function addNewListings(listings, verbose = false) {
   console.log("\n===== Database Insertion Statistics =====");
   console.log(`Total listings processed: ${stats.total}`);
   console.log(`Successfully added: ${stats.added}`);
+  console.log(`Sold items added: ${stats.soldItems}`);
   console.log(`Skipped: ${stats.skipped.total}`);
   console.log(`  - Already exists: ${stats.skipped.alreadyExists}`);
   console.log(`  - Invalid data: ${stats.skipped.invalidData}`);

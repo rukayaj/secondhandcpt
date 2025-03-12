@@ -50,6 +50,8 @@
     "ts-scripts:manually-review-listings": "ts-node src/scripts/manuallyReviewListingsWithoutImages.ts",
     "db:setup-supabase": "node src/scripts/setupSupabase.js",
     "db:migrate-to-supabase": "node src/scripts/migrateToSupabase.js",
+    "db:run-migration": "node scripts/database/run-migration.js",
+    "db:add-multi-message-columns": "node scripts/database/run-migration.js add_multi_message_columns.sql",
     "category:apply": "node scripts/categorization/apply-categories.js",
     "category:with-llm": "node scripts/categorization/categorize-with-llm.js",
     "category:uncategorised-with-llm": "node scripts/categorization/categorize-with-llm.js --non-interactive --service=openai --live",
