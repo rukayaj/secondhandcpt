@@ -24,16 +24,20 @@
  *   --skip-sync         Skip synchronization of expired listings
  */
 
-require('dotenv').config({ path: '.env.local' });
 const fs = require('fs');
 const path = require('path');
+
+// Load environment variables from both project root and local directory
+require('dotenv').config({ path: path.resolve(process.cwd(), '.env.local') });
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+
 const axios = require('axios');
 const { program } = require('commander');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Import utility modules
 const { getLastImportDate, updateLastImportDate } = require('../../src/utils/metadataUtils');
-const { listingExists, addListing, getLatestMessageTimestampsByGroup, deleteExpiredListings } = require('../../src/utils/dbUtils');
+const { listingExists, addListing, getLatestMessageTimestampsByGroup } = require('../../src/utils/dbUtils');
 const { extractPhoneNumber } = require('../../src/utils/listingParser');
 
 // Import our consolidated utility modules
@@ -41,6 +45,9 @@ const {
   WHATSAPP_GROUPS,
   WAHA_BASE_URL,
   WAHA_SESSION,
+  REDIS_URL, 
+  AWS_BUCKET_NAME, 
+  AWS_BUCKET_REGION,
   getAdminClient,
   checkWahaSessionStatus,
   startWahaSession,
@@ -53,6 +60,9 @@ const {
   checkMissingSupabaseImages,
   downloadImageFromWaha
 } = require('../image-handling/imageUtils');
+
+// API Prefix for WAHA
+const WAHA_API_PREFIX = '/default';
 
 // Create necessary directories
 const tmpDir = path.join(process.cwd(), 'tmp');
@@ -103,6 +113,10 @@ const GROUP_MAPPING = WHATSAPP_GROUPS.reduce((map, group) => {
   }
   return map;
 }, {});
+
+// Configuration
+const MIN_AGE_DAYS = 7; // Only expire listings older than 7 days
+const VERIFICATION_ENABLED = true; // Verify listings still exist before expiring
 
 /**
  * Group related messages by sender and message context
@@ -650,27 +664,30 @@ OUTPUT:
 
 /**
  * Find the oldest message still available in a WhatsApp group
+ * Uses the improved method that includes all messages
  * @param {string} chatId - The chat ID of the WhatsApp group
  * @returns {Promise<number|null>} - Unix timestamp in seconds of the oldest message, or null if error
  */
 async function findOldestMessageTimestamp(chatId) {
   try {
-    console.log(`Finding oldest message for chat ID: ${chatId}...`);
+    if (options.verbose) console.log(`Finding oldest message for chat ID: ${chatId}...`);
     
     // Get the oldest messages from the group (using sort=asc and limit=1)
-    const response = await axios.get(`${WAHA_BASE_URL}/api/messages`, {
+    // Note: We don't use fromMe: false to include all messages
+    const response = await axios.get(`${WAHA_BASE_URL}${WAHA_API_PREFIX}/chats/${chatId}/messages`, {
       params: {
-        session: 'default',
-        chatId: chatId,
         limit: 1,
-        fromMe: false,
         sort: 'asc' // Sort ascending to get the oldest message first
       }
     });
     
     if (response.data && Array.isArray(response.data) && response.data.length > 0) {
       const oldestMessage = response.data[0];
-      console.log(`Oldest message found from ${new Date(oldestMessage.timestamp * 1000).toISOString()}`);
+      if (options.verbose) {
+        console.log(`Oldest message found from ${new Date(oldestMessage.timestamp * 1000).toISOString()}`);
+        console.log(`Message fromMe: ${oldestMessage.fromMe}`);
+        console.log(`Message body: "${oldestMessage.body ? oldestMessage.body.substring(0, 50) + '...' : 'No body'}"`);
+      }
       return oldestMessage.timestamp;
     } else {
       console.warn(`No messages found for chat ID: ${chatId}`);
@@ -679,6 +696,200 @@ async function findOldestMessageTimestamp(chatId) {
   } catch (error) {
     console.error(`Error finding oldest message: ${error.message}`);
     return null;
+  }
+}
+
+/**
+ * Check if a listing still exists in WhatsApp
+ * @param {string} chatId - The chat ID to search in
+ * @param {Object} listing - The listing to check
+ * @returns {Promise<boolean>} - Whether the listing still exists
+ */
+async function checkIfListingExistsInWhatsApp(chatId, listing) {
+  try {
+    if (options.verbose) console.log(`Checking if listing "${listing.title}" still exists in WhatsApp...`);
+    
+    // Get a larger batch of messages to search through
+    const response = await axios.get(`${WAHA_BASE_URL}${WAHA_API_PREFIX}/chats/${chatId}/messages`, {
+      params: {
+        limit: 200 // Get a larger batch to search through
+      }
+    });
+    
+    if (!response.data || !Array.isArray(response.data) || response.data.length === 0) {
+      // If we can't get messages, assume the listing might still exist (conservative approach)
+      if (options.verbose) console.log(`No messages retrieved from chat ${chatId}, assuming listing still exists`);
+      return true;
+    }
+    
+    // Create search terms from listing title and text
+    const searchTerms = [
+      listing.title,
+      // Extract a few keywords from the text
+      ...(listing.text ? listing.text.split(/\s+/).filter(word => word.length > 4).slice(0, 5) : [])
+    ].filter(Boolean);
+    
+    if (options.verbose) console.log(`Search terms: ${searchTerms.join(', ')}`);
+    
+    // Search for any of the search terms
+    const matchingMessages = response.data.filter(msg => {
+      if (!msg.body) return false;
+      
+      // Check if any search term is found in the message body
+      return searchTerms.some(term => 
+        msg.body.toLowerCase().includes(term.toLowerCase())
+      );
+    });
+    
+    if (matchingMessages.length > 0) {
+      if (options.verbose) console.log(`Found ${matchingMessages.length} messages matching listing "${listing.title}"`);
+      return true;
+    } else {
+      if (options.verbose) console.log(`No messages found matching listing "${listing.title}"`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`Error checking if listing exists in WhatsApp: ${error.message}`);
+    // If we can't check, assume the listing might still exist (conservative approach)
+    return true;
+  }
+}
+
+/**
+ * Delete listings that are older than a specified timestamp for a given WhatsApp group
+ * With improvements to avoid premature deletion
+ * 
+ * @param {string} groupName - The name of the WhatsApp group
+ * @param {number} timestampSeconds - Unix timestamp in seconds of the oldest message still in the group
+ * @returns {Promise<{deleted: number, imagesRemoved: number, error: any, expiredListings: Array}>} - Result object
+ */
+async function deleteExpiredListings(groupName, timestampSeconds) {
+  try {
+    // Convert Unix timestamp (seconds) to ISO string for database comparison
+    const oldestMessageDate = new Date(timestampSeconds * 1000).toISOString();
+    const chatId = WHATSAPP_GROUPS.find(g => g.name === groupName)?.chatId;
+    
+    if (!chatId) {
+      console.warn(`Cannot find chat ID for group "${groupName}"`);
+      return { deleted: 0, imagesRemoved: 0, error: new Error('Chat ID not found'), expiredListings: [] };
+    }
+    
+    console.log(`Finding listings older than ${oldestMessageDate} for group "${groupName}"...`);
+    
+    const supabase = getAdminClient();
+    
+    // Find listings to delete (for logging purposes)
+    const { data: potentiallyExpiredListings, error: countError } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('id, title, date, text, images')
+      .eq('whatsapp_group', groupName)
+      .lt('date', oldestMessageDate);
+    
+    if (countError) {
+      console.error(`Error finding expired listings: ${countError.message}`);
+      return { deleted: 0, imagesRemoved: 0, error: countError, expiredListings: [] };
+    }
+    
+    // If no expired listings found, return early
+    if (!potentiallyExpiredListings || potentiallyExpiredListings.length === 0) {
+      console.log(`No expired listings found for group "${groupName}"`);
+      return { deleted: 0, imagesRemoved: 0, error: null, expiredListings: [] };
+    }
+    
+    console.log(`Found ${potentiallyExpiredListings.length} potentially expired listings for group "${groupName}"`);
+    
+    // Add minimum age check
+    const now = new Date();
+    const minAgeMs = MIN_AGE_DAYS * 24 * 60 * 60 * 1000;
+    
+    // Filter listings based on minimum age
+    const agedListings = potentiallyExpiredListings.filter(listing => {
+      const listingDate = new Date(listing.date);
+      const ageMs = now.getTime() - listingDate.getTime();
+      const isOldEnough = ageMs > minAgeMs;
+      
+      if (!isOldEnough) {
+        if (options.verbose) console.log(`Skipping listing "${listing.title}" - not old enough (${Math.floor(ageMs / (1000 * 60 * 60 * 24))} days old)`);
+      }
+      
+      return isOldEnough;
+    });
+    
+    if (agedListings.length === 0) {
+      console.log(`No listings meet the minimum age requirement (${MIN_AGE_DAYS} days) for group "${groupName}"`);
+      return { deleted: 0, imagesRemoved: 0, error: null, expiredListings: [] };
+    }
+    
+    // Verify listings have actually expired from WhatsApp (if enabled)
+    let verifiedExpiredListings = agedListings;
+    
+    if (VERIFICATION_ENABLED) {
+      console.log(`Verifying listings have actually expired from WhatsApp...`);
+      
+      verifiedExpiredListings = [];
+      
+      for (const listing of agedListings) {
+        // Check if the listing still exists in WhatsApp
+        const stillExists = await checkIfListingExistsInWhatsApp(chatId, listing);
+        
+        if (stillExists) {
+          if (options.verbose) console.log(`Listing "${listing.title}" (${listing.date}) still exists in WhatsApp - not deleting`);
+        } else {
+          if (options.verbose) console.log(`Verified: Listing "${listing.title}" (${listing.date}) has expired from WhatsApp`);
+          verifiedExpiredListings.push(listing);
+        }
+      }
+      
+      if (verifiedExpiredListings.length === 0) {
+        console.log(`No listings have actually expired from WhatsApp for group "${groupName}"`);
+        return { deleted: 0, imagesRemoved: 0, error: null, expiredListings: [] };
+      }
+    }
+    
+    // Delete all associated images from storage first
+    let removedImageCount = 0;
+    for (const listing of verifiedExpiredListings) {
+      if (listing.images && Array.isArray(listing.images) && listing.images.length > 0) {
+        for (const imagePath of listing.images) {
+          // Delete the image from storage
+          const { error: storageError } = await supabase
+            .storage
+            .from('listing-images')
+            .remove([imagePath]);
+          
+          if (storageError) {
+            console.warn(`Warning: Failed to delete image ${imagePath}: ${storageError.message}`);
+          } else {
+            removedImageCount++;
+          }
+        }
+      }
+    }
+    
+    // Delete the verified expired listings
+    const listingIds = verifiedExpiredListings.map(listing => listing.id);
+    
+    const { error: deleteError } = await supabase
+      .from(TABLES.LISTINGS)
+      .delete()
+      .in('id', listingIds);
+    
+    if (deleteError) {
+      console.error(`Error deleting expired listings: ${deleteError.message}`);
+      return { deleted: 0, imagesRemoved: removedImageCount, error: deleteError, expiredListings: [] };
+    }
+    
+    console.log(`Deleted ${verifiedExpiredListings.length} expired listings and ${removedImageCount} associated images for group "${groupName}"`);
+    
+    return { 
+      deleted: verifiedExpiredListings.length, 
+      imagesRemoved: removedImageCount,
+      error: null,
+      expiredListings: verifiedExpiredListings
+    };
+  } catch (error) {
+    console.error(`Error in deleteExpiredListings: ${error.message}`);
+    return { deleted: 0, imagesRemoved: 0, error, expiredListings: [] };
   }
 }
 
@@ -695,7 +906,9 @@ async function syncExpiredListings(options = {}) {
     errors: 0
   };
   
-  console.log('Syncing expired listings...');
+  console.log('Syncing expired listings with improved algorithm...');
+  console.log(`- Minimum age requirement: ${MIN_AGE_DAYS} days`);
+  console.log(`- Verification enabled: ${VERIFICATION_ENABLED}`);
   
   for (const group of WHATSAPP_GROUPS) {
     if (!group.chatId) {
@@ -713,7 +926,8 @@ async function syncExpiredListings(options = {}) {
       }
       
       // Delete listings older than the oldest message
-      const { deleted, imagesRemoved, error, expiredListings } = await deleteExpiredListings(group.name, oldestTimestamp);
+      const { deleted, imagesRemoved, error, expiredListings } = 
+        await deleteExpiredListings(group.name, oldestTimestamp);
       
       if (error) {
         console.error(`Error syncing expired listings for "${group.name}": ${error.message}`);
