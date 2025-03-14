@@ -17,6 +17,7 @@ export interface ListingRecord {
   date: string;
   sender: string;
   text: string;
+  title: string;
   images: string[] | undefined;
   price: number | null;
   condition: string | null;

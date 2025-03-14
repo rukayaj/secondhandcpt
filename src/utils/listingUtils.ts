@@ -7,6 +7,7 @@ export interface Listing {
   date: string;
   sender: string;
   text: string;
+  title: string; // Add title field
   images: string[];
   price: number | null;
   condition: string | null;
@@ -26,6 +27,7 @@ export function convertRecordToListing(record: ListingRecord): Listing {
     date: record.date,
     sender: record.sender,
     text: record.text,
+    title: record.title || '', // Map title field
     images: record.images || [],
     price: record.price,
     condition: record.condition,

@@ -54,14 +54,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const formattedDate = formatDate(listing.date);
   const [imageError, setImageError] = React.useState(false);
 
-  // Generate a display title from the text
-  const displayTitle = listing.text 
-    ? listing.text
-        .split('\n')
-        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-        .join(' ')
-        .substring(0, 60) + (listing.text.length > 60 ? '...' : '')
-    : `${listing.category || 'Item'} for sale`; // Fallback to category or default text
+  // Use the title field directly - no fallback to ensure titles are always required
+  const displayTitle = listing.title;
 
   // Use the database category value instead of determining from text
   const category = listing.category || 'Other';

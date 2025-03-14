@@ -60,14 +60,8 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   // Use the database category value instead of determining from text
   const category = listing.category || 'Other';
 
-  // Generate a display title from the text
-  const displayTitle = listing.text
-    ? listing.text
-        .split('\n')
-        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-        .join(' ')
-        .substring(0, 60) + (listing.text.length > 60 ? '...' : '')
-    : `${listing.category || 'Item'} for sale`; // Fallback to category or default text
+  // Use the title field directly - no fallback to ensure titles are always required
+  const displayTitle = listing.title;
 
   if (!listing) {
     return (
@@ -101,19 +95,13 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     }));
   };
 
-  // Generate related item titles
+  // Generate related item titles using the title field
   const getRelatedItemTitle = (item: Listing): string => {
-    return item.text
-      ? item.text
-          .split('\n')
-          .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-          .join(' ')
-          .substring(0, 60) + (item.text.length > 60 ? '...' : '')
-      : `${item.category || 'Item'} for sale`; // Fallback to category or default text
+    return item.title;
   };
 
   return (
-    <Layout title={`${displayTitle} - Nifty Thrifty`}>
+    <Layout title={`${listing.title} - Nifty Thrifty`}>
       <div className="container py-8">
         <div className="mb-4">
           <Link href="/listings" className="text-primary-600 hover:underline flex items-center">
