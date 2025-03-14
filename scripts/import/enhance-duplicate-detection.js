@@ -153,8 +153,14 @@ async function testDuplicateDetection(id1, id2) {
 }
 
 // Test with the two known duplicate listings
-const listingId1 = '61a4cb56-cf49-410f-b9f3-f09ae67feb06';
-const listingId2 = '91367ff3-df78-4867-9feb-846283f39492';
+let listingId1 = 'f5bfad65-10e4-43a7-8795-dc7f411f1c87';
+let listingId2 = '17bd6c46-8744-4279-9aec-322431a29404';
+
+// Allow passing IDs via command line args
+if (process.argv.length >= 4) {
+  listingId1 = process.argv[2];
+  listingId2 = process.argv[3];
+}
 
 console.log(`Testing duplicate detection between listings:\n- ${listingId1}\n- ${listingId2}`);
 

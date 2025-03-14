@@ -275,13 +275,13 @@ async function listingExists(listing, verbose = false) {
     // Format date as ISO string for PostgreSQL compatibility
     const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
     
-    // First check: exact match on sender and text content (regardless of date)
-    // This is the most reliable way to detect duplicates
+    // First check: exact match on sender and text content (regardless of group or date)
+    // This is the most reliable way to detect duplicates, including cross-group duplicates
     if (listing.text && listing.sender) {
       try {
         const { data, error } = await supabase
           .from(TABLES.LISTINGS)
-          .select('id, title, date, text, price')
+          .select('id, title, date, text, price, whatsapp_group')
           .eq('sender', listing.sender)
           .eq('text', listing.text);
         
@@ -290,30 +290,14 @@ async function listingExists(listing, verbose = false) {
         }
         
         if (data && data.length > 0) {
-          // Found matching text from same sender, now check price if available
-          if (listing.price) {
-            const priceMatches = data.filter(item => 
-              item.price === listing.price || 
-              (typeof item.price === 'string' && item.price.replace(/[^0-9]/g, '') === String(listing.price).replace(/[^0-9]/g, ''))
-            );
-            
-            if (priceMatches.length > 0) {
-              if (verbose) {
-                console.log('Found existing listing with identical text and price from same sender:');
-                console.log(`- ID: ${priceMatches[0].id}`);
-                console.log(`- Title: ${priceMatches[0].title}`);
-              }
-              return true;
-            }
-          } else {
-            // No price to check, but text match is strong evidence
-            if (verbose) {
-              console.log('Found existing listing with identical text from same sender:');
-              console.log(`- ID: ${data[0].id}`);
-              console.log(`- Title: ${data[0].title}`);
-            }
-            return true;
+          // Found matching text from same sender
+          if (verbose) {
+            console.log('Found existing listing with identical text from same sender:');
+            console.log(`- ID: ${data[0].id}`);
+            console.log(`- Title: ${data[0].title}`);
+            console.log(`- Group: ${data[0].whatsapp_group} (This listing is in ${listing.whatsappGroup})`);
           }
+          return true;
         }
       } catch (error) {
         console.error(`Error checking for text duplicate: ${error.message}`);

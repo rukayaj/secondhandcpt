@@ -1136,7 +1136,7 @@ async function importWhatsAppListings() {
       listings = await processImages(processedListings, options.verbose);
     }
     
-    // Step 6: Add new listings to the database
+    // Step 6: Add new listings to the database, checking for duplicates
     console.log('\nStep 6: Adding new listings to the database...');
     await addNewListings(listings, options.verbose);
     
@@ -1372,9 +1372,9 @@ async function processImages(listings, verbose = false) {
         console.log(`Uploading image to Supabase with path: ${imagePath}`);
         
         // Upload with direct path to avoid nesting issues
-        const uploadSuccess = await uploadImageToSupabase(localPath, imagePath, true);
+        const uploadResult = await uploadImageToSupabase(localPath, imagePath, true);
         
-        if (uploadSuccess) {
+        if (uploadResult) {
           console.log(`Successfully uploaded image to Supabase`);
           // Add the image path to the listing's images
           supabaseImagePaths.push(imagePath);
@@ -1391,7 +1391,7 @@ async function processImages(listings, verbose = false) {
             console.log(`Deleted temporary file: ${localPath}`);
           }
         } catch (unlinkError) {
-          console.warn(`Warning: Could not delete temporary file: ${unlinkError.message}`);
+          console.warn(`Warning: Could not delete temp file: ${unlinkError.message}`);
         }
       } catch (error) {
         console.error(`Error processing image for ${listing.title || 'Untitled'}: ${error.message}`);
@@ -1420,10 +1420,10 @@ async function processImages(listings, verbose = false) {
 }
 
 /**
- * Add new listings to the database
- * @param {Array} listings - Processed listings to add
+ * Add new listings to the database, checking for duplicates
+ * @param {Array} listings - The listings to add
  * @param {boolean} verbose - Whether to show detailed output
- * @returns {Promise<Array>} - Array of added listings
+ * @returns {Promise<Array>} - The added listings
  */
 async function addNewListings(listings, verbose = false) {
   const addedListings = [];
@@ -1443,7 +1443,48 @@ async function addNewListings(listings, verbose = false) {
   
   console.log(`Processing ${listings.length} listings for database insertion...`);
   
-  for (const listing of listings) {
+  // Pre-processing step: Check for cross-group duplicates within the batch
+  // Group listings by sender+text to identify duplicates within the batch
+  const listingsByKey = {};
+  const duplicatesWithinBatch = new Set();
+  
+  // First pass: Group by sender+text key
+  for (let i = 0; i < listings.length; i++) {
+    const listing = listings[i];
+    if (!listing.text || !listing.sender) continue;
+    
+    const key = `${listing.sender}:${listing.text.trim()}`;
+    if (!listingsByKey[key]) {
+      listingsByKey[key] = [i]; // Store index of listing
+    } else {
+      // We found a duplicate within the batch
+      listingsByKey[key].push(i);
+      
+      // Mark all instances as duplicates except the first one
+      for (let j = 1; j < listingsByKey[key].length; j++) {
+        duplicatesWithinBatch.add(listingsByKey[key][j]);
+      }
+    }
+  }
+  
+  if (duplicatesWithinBatch.size > 0) {
+    console.log(`Found ${duplicatesWithinBatch.size} duplicate listings within this batch that will be skipped`);
+  }
+  
+  // Now process each listing
+  for (let i = 0; i < listings.length; i++) {
+    const listing = listings[i];
+    
+    // Skip if this is marked as a duplicate within the batch
+    if (duplicatesWithinBatch.has(i)) {
+      if (verbose) {
+        console.log(`\nSkipping listing: ${listing.title || 'Untitled'} - duplicate found within batch`);
+      }
+      stats.skipped.total++;
+      stats.skipped.alreadyExists++;
+      continue;
+    }
+    
     if (verbose) {
       console.log(`\nProcessing listing: ${listing.title || 'Untitled'}`);
       // Format timestamp for display - convert Unix timestamp to readable date
@@ -1466,7 +1507,7 @@ async function addNewListings(listings, verbose = false) {
         continue;
       }
       
-      // Check if listing already exists to avoid duplicates
+      // Check if listing already exists in the database
       const exists = await listingExists(listing, verbose);
       
       if (exists) {
@@ -1632,80 +1673,153 @@ function generateImageHash(buffer) {
 
 /**
  * Download and process images for a listing
- * @param {Object} listing - The listing to process images for
- * @param {boolean} verbose - Whether to show detailed logs
- * @returns {Promise<{images: string[], image_hashes: string[]}>} - Processed images and their hashes
+ * @param {Object} listing - The listing object
+ * @param {boolean} verbose - Whether to output verbose logs
+ * @returns {Promise<Object>} - Object with processed images and hashes
  */
 async function downloadAndProcessImages(listing, verbose = false) {
+  const images = [];
+  const image_hashes = [];
+  
+  if (!listing.imageUrls || listing.imageUrls.length === 0) {
+    if (verbose) console.log('No images to process');
+    return { images, image_hashes };
+  }
+  
+  if (verbose) console.log(`Processing ${listing.imageUrls.length} images...`);
+  
+  for (let i = 0; i < listing.imageUrls.length; i++) {
+    const imageUrl = listing.imageUrls[i];
+    const messageId = listing.messageIds ? listing.messageIds[i] : `unknown_${Date.now()}_${i}`;
+    
+    try {
+      if (verbose) console.log(`\nDownloading image ${i+1}/${listing.imageUrls.length}: ${imageUrl}`);
+      
+      const result = await processWahaImage(imageUrl, messageId, listing.whatsappGroup, verbose);
+      
+      if (result) {
+        if (verbose) {
+          console.log(`Image ${i+1} successfully processed:`);
+          console.log(`- Path: ${result.path}`);
+          console.log(`- Hash: ${result.hash || 'No hash generated'}`);
+        }
+        
+        images.push(result.path);
+        // Make sure we're storing the hash
+        if (result.hash) {
+          image_hashes.push(result.hash);
+        }
+      } else {
+        if (verbose) console.error(`Failed to process image ${i+1}`);
+      }
+    } catch (error) {
+      console.error(`Error processing image ${i+1}: ${error.message}`);
+    }
+  }
+  
+  if (verbose) {
+    console.log(`\nProcessed ${images.length}/${listing.imageUrls.length} images`);
+    console.log(`Generated ${image_hashes.length} image hashes`);
+  }
+  
+  // If we're checking for images and supposed to have images but got none, throw an error
+  if (options.checkImages && listing.imageUrls.length > 0 && images.length === 0) {
+    throw new Error('Failed to process any images for a listing that should have images');
+  }
+  
+  return { images, image_hashes };
+}
+
+/**
+ * Process and upload an image from WAHA
+ * @param {string} imageUrl - WAHA image URL
+ * @param {string} messageId - ID of the WhatsApp message
+ * @param {string} groupName - Name of the WhatsApp group
+ * @param {boolean} verbose - Whether to output verbose logs
+ * @returns {Promise<Object|null>} - Object with image path and hash, or null on failure
+ */
+async function processWahaImage(imageUrl, messageId, groupName, verbose = false) {
+  if (verbose) console.log(`Processing WAHA image: ${imageUrl}`);
+  
   try {
-    if (!listing || !listing.imageUrls || !Array.isArray(listing.imageUrls) || listing.imageUrls.length === 0) {
-      if (verbose) console.log('No images to process for listing');
-      return { images: [], image_hashes: [] };
+    // Create directory for temporary files if it doesn't exist
+    const tmpDir = path.join(process.cwd(), 'tmp', 'waha-images');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
     }
     
-    if (verbose) console.log(`Processing ${listing.imageUrls.length} images for listing: ${listing.title}`);
+    // Create a temporary file for the image
+    const tmpFile = path.join(tmpDir, `image_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`);
+    if (verbose) console.log(`Downloading to temporary file: ${tmpFile}`);
     
-    const processedImages = [];
-    const imageHashes = [];
+    // Download the image
+    const imageBuffer = await downloadImageFromWaha(imageUrl, tmpFile);
     
-    for (let i = 0; i < listing.imageUrls.length; i++) {
-      const imageUrl = listing.imageUrls[i];
-      if (!imageUrl) continue;
+    if (!imageBuffer) {
+      console.error(`Failed to download image from ${imageUrl}`);
+      return null;
+    }
+    
+    // Verify the file exists and is a valid size
+    if (!fs.existsSync(tmpFile)) {
+      console.error(`Downloaded file does not exist at path: ${tmpFile}`);
+      return null;
+    }
+    
+    const fileStats = fs.statSync(tmpFile);
+    if (fileStats.size < 100) { // Less than 100 bytes is likely invalid
+      console.error(`Downloaded file is too small to be a valid image: ${fileStats.size} bytes`);
       
       try {
-        if (verbose) console.log(`Processing image ${i+1}/${listing.imageUrls.length}: ${imageUrl}`);
-        
-        // Get WhatsApp group directory for storage
-        const groupDirName = listing.whatsappGroup.replace(/[^\w\s]/gi, '').replace(/\s+/g, '-').toLowerCase();
-        
-        // Create a unique filename for the image
-        const extension = 'jpg';  // Assume JPEG for WhatsApp images
-        const timestamp = Date.now();
-        const randomId = Math.floor(Math.random() * 10000);
-        const imageName = `${groupDirName}_${i}_${timestamp}_${randomId}.${extension}`;
-        const storagePath = `listings/${imageName}`;
-        
-        // Create the correct WAHA URL for the image download
-        // The image URL from WAHA messages is usually a relative path or media ID
-        const finalUrl = `${WAHA_BASE_URL}/api/files${WAHA_API_PREFIX}/${imageUrl.split('/').pop()}`;
-        
-        if (verbose) console.log(`Downloading image from: ${finalUrl}`);
-        
-        // Download the image from WAHA
-        const imageBuffer = await downloadImageFromWaha(finalUrl);
-        
-        if (!imageBuffer) {
-          console.error(`Failed to download image from ${finalUrl}`);
-          continue;
-        }
-        
-        // Generate a hash for the image (for duplicate detection)
-        const hash = crypto.createHash('md5').update(imageBuffer).digest('hex');
-        
-        // Upload the image to Supabase Storage
-        const uploadSuccess = await uploadImageToSupabase(imageBuffer, storagePath);
-        
-        if (uploadSuccess) {
-          if (verbose) console.log(`Successfully uploaded image to ${storagePath}`);
-          processedImages.push(storagePath);
-          imageHashes.push(hash);
-        } else {
-          console.error(`Failed to upload image to Supabase Storage: ${storagePath}`);
-        }
-      } catch (error) {
-        console.error(`Error processing image ${i+1}: ${error.message}`);
+        fs.unlinkSync(tmpFile);
+      } catch (unlinkError) {
+        console.warn(`Could not remove invalid image file: ${unlinkError.message}`);
       }
+      
+      return null;
     }
     
-    if (verbose) {
-      console.log(`Finished processing images for listing: ${listing.title}`);
-      console.log(`- ${processedImages.length}/${listing.imageUrls.length} images successfully processed`);
+    // Generate a hash for the image for duplicate detection
+    const fileBuffer = fs.readFileSync(tmpFile);
+    const imageHash = generateImageHash(fileBuffer);
+    if (verbose) console.log(`Generated image hash: ${imageHash}`);
+    
+    // Create a structured path for storage
+    const cleanGroupName = groupName.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
+    const timestamp = Date.now();
+    const uniqueId = Math.floor(Math.random() * 10000);
+    const storageFilename = `listings/${cleanGroupName}_0_${timestamp}_${uniqueId}.jpg`;
+    
+    if (verbose) console.log(`Uploading to Supabase storage as: ${storageFilename}`);
+    
+    // Upload to Supabase storage
+    const supabase = getAdminClient();
+    const uploadResult = await supabase.storage
+      .from('public')
+      .upload(storageFilename, fileBuffer, {
+        contentType: 'image/jpeg',
+        upsert: true
+      });
+    
+    // Clean up the temporary file after successful upload
+    try {
+      fs.unlinkSync(tmpFile);
+      if (verbose) console.log(`Removed temporary file: ${tmpFile}`);
+    } catch (unlinkError) {
+      console.warn(`Warning: Could not delete temp file: ${unlinkError.message}`);
     }
     
-    return { images: processedImages, image_hashes: imageHashes };
+    if (uploadResult.error) {
+      console.error(`Failed to upload image to Supabase: ${uploadResult.error.message}`);
+      return null;
+    }
+    
+    if (verbose) console.log(`Successfully processed image: ${storageFilename}`);
+    return { path: storageFilename, hash: imageHash };
+    
   } catch (error) {
-    console.error(`Error in downloadAndProcessImages: ${error.message}`);
-    return { images: [], image_hashes: [] };
+    console.error(`Error processing WAHA image: ${error.message}`);
+    return null;
   }
 }
 
