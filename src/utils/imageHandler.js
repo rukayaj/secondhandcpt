@@ -10,7 +10,16 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getAdminClient, STORAGE_BUCKETS } = require('./supabaseClient');
+const { createClient } = require('@supabase/supabase-js');
+const { STORAGE_BUCKETS } = require('./supabase.ts');
+
+// Supabase admin client for storage operations
+const getAdminClient = () => {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+};
 
 // WhatsApp group data configuration
 const WHATSAPP_GROUPS = [

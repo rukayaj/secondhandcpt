@@ -8,8 +8,22 @@
  * - Retrieving listings with various filters
  */
 
-const { getAdminClient, TABLES } = require('./supabaseClient');
+// Use createClient directly since we can't import TypeScript from JS
+const { createClient } = require('@supabase/supabase-js');
 const { extractPhoneNumber } = require('./listingParser');
+
+// Define table names
+const TABLES = {
+  LISTINGS: 'listings'
+};
+
+// Create a Supabase client with admin privileges
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
 
 /**
  * Add a new listing to the database

@@ -80,33 +80,45 @@ function getGroupByName(groupName) {
   return WHATSAPP_GROUPS.find(group => group.name === groupName) || null;
 }
 
-
 /**
- * Download an image from WAHA service
- * @param {string} imageUrl - URL of the image to download
- * @param {string} outputPath - Path to save the downloaded image
- * @returns {Promise<boolean>} - Whether the download was successful
+ * Download an image from WAHA API
+ * @param {string} imageUrl - The URL of the image to download from WAHA
+ * @param {string} outputPath - Optional path to save the image to
+ * @returns {Promise<Buffer|boolean>} - The image buffer or false if download failed
  */
 async function downloadImageFromWaha(imageUrl, outputPath) {
   try {
     // Use axios to download the image
     const axios = require('axios');
-    const { writeFile } = require('fs/promises');
     
-    const response = await axios.get(finalUrl.replace('localhost:3000', 'localhost:3001'), { responseType: 'arraybuffer' });
+    // Handle both localhost URLs (for development) and production URLs
+    const finalUrl = imageUrl.replace('localhost:3000', 'localhost:3001');
+    
+    console.log(`Downloading image from WAHA: ${finalUrl}`);
+    
+    const response = await axios.get(finalUrl, { 
+      responseType: 'arraybuffer',
+      timeout: 15000 // 15 second timeout
+    });
     
     if (response.status !== 200) {
       console.error(`Failed to download image, status: ${response.status}`);
-      return false;
+      return null;
     }
     
-    // Save the image to the specified path
-    await writeFile(outputPath, Buffer.from(response.data));
-    console.log(`[DEBUG] Image downloaded successfully to: ${outputPath}`);
-    return true;
+    const imageBuffer = Buffer.from(response.data);
+    
+    // If outputPath is provided, save the file
+    if (outputPath) {
+      const { writeFile } = require('fs/promises');
+      await writeFile(outputPath, imageBuffer);
+      console.log(`Image downloaded and saved to: ${outputPath}`);
+    }
+    
+    return imageBuffer;
   } catch (error) {
     console.error(`Error downloading image from WAHA: ${error.message}`);
-    return false;
+    return null;
   }
 }
 
@@ -114,9 +126,10 @@ async function downloadImageFromWaha(imageUrl, outputPath) {
  * Upload an image to Supabase storage
  * @param {Buffer|string} imageData - Image buffer or path to image file
  * @param {string} storagePath - Path where to store the image in Supabase
+ * @param {boolean} isFilePath - Whether imageData is a file path (default: false)
  * @returns {Promise<boolean>} - Whether the upload was successful
  */
-async function uploadImageToSupabase(imageData, storagePath) {
+async function uploadImageToSupabase(imageData, storagePath, isFilePath = false) {
   try {
     // Ensure we have the required parameters
     if (!imageData) {
@@ -130,22 +143,35 @@ async function uploadImageToSupabase(imageData, storagePath) {
     }
     
     let imageBuffer;
-  
-    // Ensure imageData is a Buffer
-    if (!(imageData instanceof Buffer)) {
-      console.error('Invalid image data: not a Buffer');
-      return false;
+    
+    // If imageData is a file path, read the file
+    if (isFilePath) {
+      try {
+        imageBuffer = fs.readFileSync(imageData);
+        console.log(`Read image from file path: ${imageData} (${imageBuffer.length} bytes)`);
+      } catch (readError) {
+        console.error(`Error reading image file: ${readError.message}`);
+        return false;
+      }
+    } else {
+      // Ensure imageData is a Buffer
+      if (!(imageData instanceof Buffer)) {
+        console.error('Invalid image data: not a Buffer');
+        return false;
+      }
+      imageBuffer = imageData;
+      console.log(`Using provided image buffer (${imageBuffer.length} bytes)`);
     }
-    imageBuffer = imageData;
-    console.log(`[DEBUG] Using provided image buffer (${imageBuffer.length} bytes)`);
-
+    
+    // Get Supabase client
+    const supabase = getAdminClient();
     
     // Generate a hash for the image for duplicate detection
     const imageHash = crypto.createHash('md5').update(imageBuffer).digest('hex');
-    console.log(`[DEBUG] Generated image hash: ${imageHash}`);
+    console.log(`Generated image hash: ${imageHash}`);
     
     // Upload to Supabase storage
-    const { error } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from('listing-images')
       .upload(storagePath, imageBuffer, {
         contentType: 'image/jpeg',
@@ -157,7 +183,7 @@ async function uploadImageToSupabase(imageData, storagePath) {
       return false;
     }
     
-    console.log(`[DEBUG] Successfully uploaded image to Supabase: ${storagePath}`);
+    console.log(`Successfully uploaded image to Supabase: ${storagePath}`);
     return true;
   } catch (error) {
     console.error(`Error in uploadImageToSupabase: ${error.message}`);

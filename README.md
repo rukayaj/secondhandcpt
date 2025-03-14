@@ -2,7 +2,7 @@
 
 A new web application for browsing, searching and filtering second-hand baby items from WhatsApp in Cape Town, powered by Supabase. Still under development.
 
-This application has been written and is managed by AI (including Claude and ChatGPT), with the occasional bit of help from human developers. Keep in mind that you, the AI, will be building and populating this website, and as it is still under development you can wipe the database and start afresh as much as you wish - don't bother migrating old data, just work on getting the import process right.
+This application has been written and is managed by AI (including Claude and ChatGPT), with the occasional bit of help from human developers. Keep in mind that you, the AI, will be building and populating this website, and as it is still under development you can wipe the database and start afresh as much as you wish - don't bother migrating old data, just work on getting the import process right. 
 
 The WAHA API (must be running locally with docker run -d -p 3001:3000 devlikeapro/waha - IMPORTANT NOTE: we use port 3001 for this API) is used to connect directly to WhatsApp to access data from the groups. 
 
@@ -14,7 +14,7 @@ Each WhatsApp group has messages expiring after a certain time, and additionally
 
 There are a number of auth requirements that should be in the .env.local file. 
 
-Note that making database structural changes is not possible from the app - if you need to do that generate some SQL for the human developers to run in the Supabase SQL console. Do not bother saving a file - just write out the SQL.
+Note that making database structural changes is not possible from the app - if you need to do that generate some SQL for the human developers to run in the Supabase SQL console. Do not bother saving a file - just write out the SQL. Wiping the database is possible though, use clear-all-data.js. IMPORTANT - DO NOT RECREATE THIS FUNCTIONALITY IN ANOTHER FILE. I've had to delete 3 different versions of it because you (the AI) keep making it again and again. Use what is there already, not just for deleting everything but also for importing/syncing messages. Before you write new code, double check that the functionality does not already exist in the codebase.
 
 The following npm scripts are available for the WAHA-Gemini integration:
 

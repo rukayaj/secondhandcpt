@@ -24,6 +24,8 @@
  *   --skip-sync         Skip synchronization of expired listings
  */
 
+console.log('DEBUG: Script starting execution');
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -32,9 +34,13 @@ const crypto = require('crypto');
 require('dotenv').config({ path: path.resolve(process.cwd(), '.env.local') });
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
+console.log('DEBUG: Environment variables loaded');
+
 const axios = require('axios');
 const { program } = require('commander');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+console.log('DEBUG: Dependencies loaded');
 
 // Import utility modules
 const { listingExists, addListing, getLatestMessageTimestampsByGroup } = require('../../src/utils/dbUtils');
@@ -310,20 +316,15 @@ async function processUserMessageGroup(userMessages) {
     // Process images and collect hashes if images are available
     if (extractedListing.imageUrls && extractedListing.imageUrls.length > 0) {
       try {
-        // Create a mock wahaClient for compatibility with downloadAndProcessImages
-        const mockWahaClient = { 
-          getMediaUrl: (url) => url // Simple passthrough function
-        };
-        
-        const { images, hashes } = await downloadAndProcessImages(
-          mockWahaClient, 
+        // Call downloadAndProcessImages with the listing and verbose flag
+        const { images, image_hashes } = await downloadAndProcessImages(
           extractedListing, 
-          false // verbose
+          options.verbose || false
         );
         
         // Add the processed images and hashes to the listing
         extractedListing.images = images;
-        extractedListing.image_hashes = hashes;
+        extractedListing.image_hashes = image_hashes;
       } catch (error) {
         console.error('Error processing images for listing:', error);
         extractedListing.images = [];
@@ -963,72 +964,89 @@ async function deleteExpiredListings(groupName, timestampSeconds) {
 }
 
 /**
- * Sync listings by removing ones whose WhatsApp messages have expired
- * @param {Object} options - Options for the sync process
- * @returns {Promise<Object>} - Statistics on the sync process
+ * Sync listings by removing expired ones
+ * This function checks the oldest message in each WhatsApp group and deletes
+ * listings older than that message since they've expired from WhatsApp
+ * 
+ * @param {Object} options - Options for synchronization
+ * @returns {Promise<Object>} - Statistics about the sync operation
  */
 async function syncExpiredListings(options = {}) {
+  const verbose = options.verbose || false;
   const stats = {
-    groupsProcessed: 0,
-    totalListingsDeleted: 0,
-    totalImagesRemoved: 0,
-    errors: 0
+    total: 0,
+    deleted: 0,
+    errors: 0,
+    groups: {}
   };
   
-  console.log('Syncing expired listings with improved algorithm...');
-  console.log(`- Minimum age requirement: ${MIN_AGE_DAYS} days`);
-  console.log(`- Verification enabled: ${VERIFICATION_ENABLED}`);
-  
-  for (const group of WHATSAPP_GROUPS) {
-    if (!group.chatId) {
-      console.log(`Skipping group "${group.name}" - no chat ID configured`);
-      continue;
-    }
+  try {
+    if (verbose) console.log('Starting to sync expired listings...');
     
-    try {
-      // Find the oldest message timestamp for this group
-      const oldestTimestamp = await findOldestMessageTimestamp(group.chatId);
-      
-      if (!oldestTimestamp) {
-        console.log(`Could not determine oldest message for "${group.name}", skipping sync`);
+    // Process each WhatsApp group with a chat ID
+    for (const group of WHATSAPP_GROUPS) {
+      if (!group.chatId) {
+        if (verbose) console.log(`Skipping ${group.name} - no chat ID configured`);
         continue;
       }
       
-      // Delete listings older than the oldest message
-      const { deleted, imagesRemoved, error, expiredListings } = 
-        await deleteExpiredListings(group.name, oldestTimestamp);
+      stats.groups[group.name] = {
+        processed: 0,
+        deleted: 0,
+        errors: 0
+      };
       
-      if (error) {
-        console.error(`Error syncing expired listings for "${group.name}": ${error.message}`);
-        stats.errors++;
-      } else {
-        if (options.verbose && deleted > 0 && expiredListings) {
-          console.log(`Deleted ${deleted} expired listings and ${imagesRemoved || 0} images from "${group.name}":`);
-          expiredListings.forEach(listing => {
-            console.log(`- "${listing.title}" (${listing.date})`);
-          });
-        } else {
-          console.log(`Deleted ${deleted} expired listings and ${imagesRemoved || 0} images from "${group.name}"`);
+      try {
+        // Find the oldest message timestamp in this group
+        if (verbose) console.log(`Finding oldest message timestamp for ${group.name}...`);
+        const oldestTimestamp = await findOldestMessageTimestamp(group.chatId);
+        
+        if (!oldestTimestamp) {
+          if (verbose) console.log(`Could not find oldest message for ${group.name}, skipping`);
+          continue;
         }
         
-        stats.totalListingsDeleted += deleted;
-        stats.totalImagesRemoved += (imagesRemoved || 0);
+        if (verbose) console.log(`Oldest message timestamp for ${group.name}: ${new Date(oldestTimestamp * 1000).toISOString()}`);
+        
+        // Delete expired listings for this group
+        const result = await deleteExpiredListings(group.name, oldestTimestamp);
+        
+        // Update statistics
+        stats.total += result.deleted;
+        stats.deleted += result.deleted;
+        stats.groups[group.name].deleted = result.deleted;
+        stats.groups[group.name].processed = result.deleted + (result.expiredListings?.length || 0);
+        
+        if (result.error) {
+          stats.errors++;
+          stats.groups[group.name].errors++;
+        }
+      } catch (error) {
+        console.error(`Error syncing ${group.name}: ${error.message}`);
+        stats.errors++;
+        stats.groups[group.name].errors++;
       }
-      
-      stats.groupsProcessed++;
-    } catch (error) {
-      console.error(`Error processing group "${group.name}" for sync: ${error.message}`);
-      stats.errors++;
     }
+    
+    if (verbose) {
+      console.log('\nSync statistics:');
+      console.log(`Total listings processed: ${stats.total}`);
+      console.log(`Deleted: ${stats.deleted}`);
+      console.log(`Errors: ${stats.errors}`);
+      
+      for (const groupName in stats.groups) {
+        console.log(`\n${groupName}:`);
+        console.log(`  Processed: ${stats.groups[groupName].processed}`);
+        console.log(`  Deleted: ${stats.groups[groupName].deleted}`);
+        console.log(`  Errors: ${stats.groups[groupName].errors}`);
+      }
+    }
+    
+    return stats;
+  } catch (error) {
+    console.error('Error in syncExpiredListings:', error);
+    throw error;
   }
-  
-  console.log('Sync complete:');
-  console.log(`- Groups processed: ${stats.groupsProcessed}`);
-  console.log(`- Total listings deleted: ${stats.totalListingsDeleted}`);
-  console.log(`- Total images removed: ${stats.totalImagesRemoved}`);
-  console.log(`- Errors: ${stats.errors}`);
-  
-  return stats;
 }
 
 /**
@@ -1612,4 +1630,93 @@ function generateImageHash(buffer) {
   return crypto.createHash('md5').update(buffer).digest('hex');
 }
 
-// ... rest of the file ...
+/**
+ * Download and process images for a listing
+ * @param {Object} listing - The listing to process images for
+ * @param {boolean} verbose - Whether to show detailed logs
+ * @returns {Promise<{images: string[], image_hashes: string[]}>} - Processed images and their hashes
+ */
+async function downloadAndProcessImages(listing, verbose = false) {
+  try {
+    if (!listing || !listing.imageUrls || !Array.isArray(listing.imageUrls) || listing.imageUrls.length === 0) {
+      if (verbose) console.log('No images to process for listing');
+      return { images: [], image_hashes: [] };
+    }
+    
+    if (verbose) console.log(`Processing ${listing.imageUrls.length} images for listing: ${listing.title}`);
+    
+    const processedImages = [];
+    const imageHashes = [];
+    
+    for (let i = 0; i < listing.imageUrls.length; i++) {
+      const imageUrl = listing.imageUrls[i];
+      if (!imageUrl) continue;
+      
+      try {
+        if (verbose) console.log(`Processing image ${i+1}/${listing.imageUrls.length}: ${imageUrl}`);
+        
+        // Get WhatsApp group directory for storage
+        const groupDirName = listing.whatsappGroup.replace(/[^\w\s]/gi, '').replace(/\s+/g, '-').toLowerCase();
+        
+        // Create a unique filename for the image
+        const extension = 'jpg';  // Assume JPEG for WhatsApp images
+        const timestamp = Date.now();
+        const randomId = Math.floor(Math.random() * 10000);
+        const imageName = `${groupDirName}_${i}_${timestamp}_${randomId}.${extension}`;
+        const storagePath = `listings/${imageName}`;
+        
+        // Create the correct WAHA URL for the image download
+        // The image URL from WAHA messages is usually a relative path or media ID
+        const finalUrl = `${WAHA_BASE_URL}/api/files${WAHA_API_PREFIX}/${imageUrl.split('/').pop()}`;
+        
+        if (verbose) console.log(`Downloading image from: ${finalUrl}`);
+        
+        // Download the image from WAHA
+        const imageBuffer = await downloadImageFromWaha(finalUrl);
+        
+        if (!imageBuffer) {
+          console.error(`Failed to download image from ${finalUrl}`);
+          continue;
+        }
+        
+        // Generate a hash for the image (for duplicate detection)
+        const hash = crypto.createHash('md5').update(imageBuffer).digest('hex');
+        
+        // Upload the image to Supabase Storage
+        const uploadSuccess = await uploadImageToSupabase(imageBuffer, storagePath);
+        
+        if (uploadSuccess) {
+          if (verbose) console.log(`Successfully uploaded image to ${storagePath}`);
+          processedImages.push(storagePath);
+          imageHashes.push(hash);
+        } else {
+          console.error(`Failed to upload image to Supabase Storage: ${storagePath}`);
+        }
+      } catch (error) {
+        console.error(`Error processing image ${i+1}: ${error.message}`);
+      }
+    }
+    
+    if (verbose) {
+      console.log(`Finished processing images for listing: ${listing.title}`);
+      console.log(`- ${processedImages.length}/${listing.imageUrls.length} images successfully processed`);
+    }
+    
+    return { images: processedImages, image_hashes: imageHashes };
+  } catch (error) {
+    console.error(`Error in downloadAndProcessImages: ${error.message}`);
+    return { images: [], image_hashes: [] };
+  }
+}
+
+// Execute the import process
+console.log('DEBUG: Starting import process');
+importWhatsAppListings()
+  .then(() => {
+    console.log('DEBUG: Import process completed successfully');
+  })
+  .catch(error => {
+    console.error('DEBUG: Error in import process:', error);
+  });
+
+console.log('DEBUG: Script execution complete');

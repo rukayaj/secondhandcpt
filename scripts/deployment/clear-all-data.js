@@ -20,7 +20,8 @@ require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
 require('dotenv').config({ path: path.resolve(__dirname, './.env') });
 
 const { program } = require('commander');
-const { getAdminClient, TABLES } = require('../../src/utils/supabaseClient');
+const { getAdminClient } = require('../../src/utils/supabase');
+const TABLES = { LISTINGS: 'listings' };
 
 // Parse command line arguments
 program
