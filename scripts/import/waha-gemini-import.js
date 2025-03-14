@@ -473,14 +473,14 @@ Return an ARRAY of listings, where each listing has these fields:
 {
   "title": "Brief product title - DO NOT leave this empty or generic. Must be specific and descriptive.",
   "price": "Price with currency symbol (R100, R50, etc.) or 'Free' if item is being given away",
-  "condition": "New, Used, etc.",
+  "condition": "Standardise to either: New, Good, Fair or Used.",
   "collection_areas": "Where to collect (as a string or array of strings)",
   "description": "Full description",
   "is_free": boolean,
   "is_iso": boolean (true if this is an 'In Search Of' post, not a sales listing),
   "is_sold": boolean (true if the item has been marked as sold/taken),
   "sizes": ["Array of size values - include ALL mentioned sizes"],
-  "category": "Category of item from the following list: Clothing, Maternity Clothing, Footwear, Toys, Furniture, Books, Feeding, Bath, Safety, Bedding, Diapering, Health, Swimming, Gear, Accessories, Uncategorised"
+  "category": "Category of item from the following list: Clothing, Maternity Clothing, Footwear, Toys, Furniture, Books, Feeding, Bath, Safety, Bedding, Diapering, Health, Swimming, Gear, Uncategorised"
 }
 
 EXAMPLES:
@@ -504,7 +504,7 @@ OUTPUT:
   {
     "title": "Baby walker",
     "price": "R200",
-    "condition": "Good condition",
+    "condition": "Good",
     "collection_areas": "Rondebosch",
     "description": "Baby walker, good condition",
     "is_free": false,
@@ -516,7 +516,7 @@ OUTPUT:
   {
     "title": "Toddler bike with training wheels",
     "price": "R350",
-    "condition": "Used - Excellent condition",
+    "condition": "Good",
     "collection_areas": "Rondebosch",
     "description": "Toddler's bike for 3-5 years with training wheels included",
     "is_free": false,
@@ -546,7 +546,7 @@ OUTPUT:
   {
     "title": "H&M maternity jeans",
     "price": "R150",
-    "condition": "Excellent condition",
+    "condition": "Good",
     "collection_areas": "Kirstenhof",
     "description": "H&M maternity jeans, size Large, excellent condition, originally R200, reduced to R150",
     "is_free": false,
@@ -603,7 +603,7 @@ OUTPUT:
   {
     "title": "Baby shoes sizes 2 & 3",
     "price": "R100",
-    "condition": "Excellent condition",
+    "condition": "Good",
     "collection_areas": "Sea Point",
     "description": "Baby shoes for sale, sizes 2 & 3, excellent condition, R100 for both pairs",
     "is_free": false,

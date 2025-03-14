@@ -20,8 +20,17 @@ require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
 require('dotenv').config({ path: path.resolve(__dirname, './.env') });
 
 const { program } = require('commander');
-const { getAdminClient } = require('../../src/utils/supabase');
+// Fix the import path to use the correct TypeScript module
+const { createClient } = require('@supabase/supabase-js');
 const TABLES = { LISTINGS: 'listings' };
+
+// Function to get admin client
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
 
 // Parse command line arguments
 program

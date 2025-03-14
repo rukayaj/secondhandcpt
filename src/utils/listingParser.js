@@ -86,8 +86,28 @@ function extractPrice(text) {
   for (const pattern of pricePatterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      // Convert the matched price to a number
-      return parseFloat(match[1].replace(',', '.'));
+      // Handle South African format: Convert "1,000.00" or "1,000" to a proper number
+      let priceStr = match[1];
+      
+      // First check if there's both a comma and a period, which would indicate the comma is a thousands separator
+      if (priceStr.includes(',') && priceStr.includes('.')) {
+        // Remove commas used as thousands separators
+        priceStr = priceStr.replace(/,/g, '');
+      } 
+      // If there's just a comma and no period, treat comma as decimal separator
+      else if (priceStr.includes(',') && !priceStr.includes('.')) {
+        // Check if the comma is followed by exactly 2 digits (likely decimal)
+        const commaIndex = priceStr.indexOf(',');
+        if (priceStr.length - commaIndex - 1 === 2) {
+          // It's likely a decimal separator (e.g., 10,99 => 10.99)
+          priceStr = priceStr.replace(',', '.');
+        } else {
+          // Likely a thousands separator (e.g., 1,000 => 1000)
+          priceStr = priceStr.replace(/,/g, '');
+        }
+      }
+      
+      return parseFloat(priceStr);
     }
   }
   

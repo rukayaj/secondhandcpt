@@ -63,13 +63,6 @@ const CATEGORIES = {
     ],
     description: 'Feeding items including bottles, bibs, breast pumps, sterilizers, etc.'
   },
-  'Accessories': {
-    patterns: [
-      { pattern: /\b(hat|cap|accessory|accessories|hair|clip|bow|watch|jewelry|sunglasses|glasses|bag|necklace|bracelet|headband|beanie)\b/i, weight: 1 },
-      { pattern: /\b(cotton|adjustable|cute|adorable|matching|set|handmade)\b/i, weight: 0.2 }
-    ],
-    description: 'Accessories for babies and toddlers including hats, hair clips, bags, etc.'
-  },
   'Swimming': {
     patterns: [
       { pattern: /\b(swim|swimming|pool|beach|float|life jacket|swimsuit|swimwear|costume|trunks|goggles|towel|rash|vest|sun|hat|protection)\b/i, weight: 1 },
