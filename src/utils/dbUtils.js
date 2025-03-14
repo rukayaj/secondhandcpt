@@ -93,8 +93,14 @@ async function addListing(listing) {
       sold_date: soldDateString || null,
       // Add multi-message fields
       is_multi_message: listing.isMultiUserMessage || false,
-      message_count: listing.messageCount || 1
+      message_count: listing.messageCount || 1,
     };
+    
+    // Only add image_hashes if they exist in the listing
+    // This makes the code backward compatible with databases that don't have the column yet
+    if (listing.image_hashes || listing.imageHashes) {
+      dbListing.image_hashes = listing.image_hashes || listing.imageHashes || [];
+    }
     
     // The phone_number column now exists in the database, so we can add it
     // Add phone_number if available
@@ -255,7 +261,264 @@ async function listingExists(listing, verbose = false) {
     // Format date as ISO string for PostgreSQL compatibility
     const dateString = listing.date instanceof Date ? listing.date.toISOString() : listing.date;
     
-    // First check: exact match on date, sender, and WhatsApp group
+    // First check: exact match on sender and text content (regardless of date)
+    // This is the most reliable way to detect duplicates
+    if (listing.text && listing.sender) {
+      try {
+        const { data, error } = await supabase
+          .from(TABLES.LISTINGS)
+          .select('id, title, date, text, price')
+          .eq('sender', listing.sender)
+          .eq('text', listing.text);
+        
+        if (error) {
+          throw error;
+        }
+        
+        if (data && data.length > 0) {
+          // Found matching text from same sender, now check price if available
+          if (listing.price) {
+            const priceMatches = data.filter(item => 
+              item.price === listing.price || 
+              (typeof item.price === 'string' && item.price.replace(/[^0-9]/g, '') === String(listing.price).replace(/[^0-9]/g, ''))
+            );
+            
+            if (priceMatches.length > 0) {
+              if (verbose) {
+                console.log('Found existing listing with identical text and price from same sender:');
+                console.log(`- ID: ${priceMatches[0].id}`);
+                console.log(`- Title: ${priceMatches[0].title}`);
+              }
+              return true;
+            }
+          } else {
+            // No price to check, but text match is strong evidence
+            if (verbose) {
+              console.log('Found existing listing with identical text from same sender:');
+              console.log(`- ID: ${data[0].id}`);
+              console.log(`- Title: ${data[0].title}`);
+            }
+            return true;
+          }
+        }
+      } catch (error) {
+        console.error(`Error checking for text duplicate: ${error.message}`);
+      }
+    }
+    
+    // New check: search for similar text content from the same sender within the last 7 days
+    if (listing.text && listing.sender) {
+      try {
+        // Calculate date threshold (7 days)
+        const dateThreshold = new Date();
+        dateThreshold.setDate(dateThreshold.getDate() - 7);
+        const thresholdDateString = dateThreshold.toISOString();
+        
+        const { data: recentSenderListings, error: senderError } = await supabase
+          .from(TABLES.LISTINGS)
+          .select('id, title, date, text, price')
+          .eq('sender', listing.sender)
+          .gte('date', thresholdDateString)
+          .order('date', { ascending: false })
+          .limit(30); // Increased limit to catch more potential duplicates
+        
+        if (senderError) {
+          console.error(`Error checking for recent sender listings: ${senderError.message}`);
+        } else if (recentSenderListings && recentSenderListings.length > 0) {
+          // Calculate start of substantive content (skip common intros like "I can't believe it's time for me to do this")
+          const skipIntroPatterns = [
+            /I can'?t believe it'?s time for me to do this/i,
+            /sadly selling/i,
+            /up for grabs/i,
+            /selling (my|the following)/i,
+            /for sale/i
+          ];
+          
+          // Extract clean text for comparison
+          let cleanListingText = listing.text;
+          for (const pattern of skipIntroPatterns) {
+            cleanListingText = cleanListingText.replace(pattern, '').trim();
+          }
+          
+          // Check text similarity with recent listings from the same sender
+          for (const existingListing of recentSenderListings) {
+            if (!existingListing.text) continue;
+            
+            // Clean the existing listing text
+            let cleanExistingText = existingListing.text;
+            for (const pattern of skipIntroPatterns) {
+              cleanExistingText = cleanExistingText.replace(pattern, '').trim();
+            }
+            
+            const similarity = calculateTextSimilarity(cleanListingText, cleanExistingText);
+            
+            // If the similarity is very high, consider it a duplicate (80% or higher)
+            if (similarity >= 0.8) {
+              if (verbose) {
+                console.log('Found duplicate by high text similarity from same sender:');
+                console.log(`- ID: ${existingListing.id}`);
+                console.log(`- Title: ${existingListing.title}`);
+                console.log(`- Similarity: ${Math.round(similarity * 100)}%`);
+              }
+              return true;
+            }
+            
+            // Check for key phrases match (30+ chars) between the texts
+            if (cleanListingText.length > 30 && cleanExistingText.length > 30) {
+              // Find matching phrases of at least 30 characters
+              for (let i = 0; i <= cleanListingText.length - 30; i++) {
+                const phrase = cleanListingText.substring(i, i + 30);
+                if (cleanExistingText.includes(phrase)) {
+                  if (verbose) {
+                    console.log('Found duplicate by matching key phrase:');
+                    console.log(`- ID: ${existingListing.id}`);
+                    console.log(`- Title: ${existingListing.title}`);
+                    console.log(`- Matching phrase: "${phrase}"`);
+                  }
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Error in recent sender listings check: ${error.message}`);
+      }
+    }
+    
+    // New function to check for duplicate images by hash
+    async function checkImageHashDuplicates() {
+      try {
+        if (!listing.images || listing.images.length === 0) {
+          return false;
+        }
+        
+        // If we have image hashes, look for duplicate hashes
+        if (listing.image_hashes && listing.image_hashes.length > 0) {
+          if (verbose) {
+            console.log(`Checking for duplicate images by hash (${listing.image_hashes.length} hashes)`);
+          }
+          
+          // Fetch recent listings with images from the same sender
+          const { data: recentListings, error: recentError } = await supabase
+            .from(TABLES.LISTINGS)
+            .select('id, title, date, images, image_hashes')
+            .eq('sender', listing.sender)
+            .order('date', { ascending: false })
+            .limit(50);
+          
+          if (recentError) {
+            console.error(`Error querying for recent listings: ${recentError.message}`);
+            return false;
+          }
+          
+          // Check each listing for matching hashes
+          for (const existingListing of recentListings) {
+            if (!existingListing.image_hashes || !Array.isArray(existingListing.image_hashes) || existingListing.image_hashes.length === 0) {
+              continue;
+            }
+            
+            // Look for any matching hash
+            const matchingHashes = listing.image_hashes.filter(hash => 
+              existingListing.image_hashes.includes(hash)
+            );
+            
+            if (matchingHashes.length > 0) {
+              if (verbose) {
+                console.log(`Found duplicate by matching image hash:`);
+                console.log(`- ID: ${existingListing.id}`);
+                console.log(`- Title: ${existingListing.title}`);
+                console.log(`- Matching hash: ${matchingHashes[0]}`);
+              }
+              return true;
+            }
+          }
+        }
+        
+        return false;
+      } catch (error) {
+        console.error(`Error in checkImageHashDuplicates: ${error.message}`);
+        return false;
+      }
+    }
+    
+    // Check for duplicate by image hash
+    const isImageHashDuplicate = await checkImageHashDuplicates();
+    if (isImageHashDuplicate) {
+      return true;
+    }
+    
+    // Check for duplicate by image path (if images exist)
+    if (listing.images && listing.images.length > 0 && listing.sender) {
+      try {
+        // Get recent listings with images from the same sender
+        // Increasing limit from 20 to 100 to catch more potential duplicates
+        const { data, error } = await supabase
+          .from(TABLES.LISTINGS)
+          .select('id, title, date, images, price')
+          .eq('sender', listing.sender)
+          .neq('images', '{}')
+          .order('date', { ascending: false })
+          .limit(100);  // Increased from 20 to 100
+        
+        if (error) {
+          console.error(`Error querying for image duplicates: ${error.message}`);
+          // Continue with other checks rather than throwing
+        }
+        else if (data && data.length > 0) {
+          // Check for identical images
+          if (verbose) {
+            console.log(`Checking ${data.length} listings from same sender for matching images`);
+            console.log(`Current listing images: ${JSON.stringify(listing.images)}`);
+          }
+          
+          for (const existingListing of data) {
+            if (existingListing.images && existingListing.images.length > 0) {
+              // Check if any image paths match
+              const matchingImages = listing.images.filter(image => 
+                existingListing.images.includes(image)
+              );
+              
+              if (verbose && existingListing.images.length > 0) {
+                console.log(`Comparing with listing ${existingListing.id} (${existingListing.title})`);
+                console.log(`- Existing images: ${JSON.stringify(existingListing.images)}`);
+                console.log(`- Matching images: ${matchingImages.length > 0 ? JSON.stringify(matchingImages) : 'None'}`);
+              }
+              
+              if (matchingImages.length > 0) {
+                // If there's at least one matching image and prices are similar, consider it a duplicate
+                const currentPrice = parseFloat(String(listing.price || '0').replace(/[^0-9.]/g, '')) || 0;
+                const existingPrice = parseFloat(String(existingListing.price || '0').replace(/[^0-9.]/g, '')) || 0;
+                const priceDifference = Math.abs(currentPrice - existingPrice);
+                
+                if (verbose) {
+                  console.log(`Price comparison: Current ${currentPrice}, Existing ${existingPrice}, Difference ${priceDifference}`);
+                }
+                
+                // Consider it a duplicate if:
+                // 1. Prices are similar (within 10) OR
+                // 2. At least half of the images match (strong evidence of duplicate)
+                if (priceDifference < 10 || (matchingImages.length >= Math.max(1, Math.min(listing.images.length, existingListing.images.length) / 2))) {
+                  if (verbose) {
+                    console.log('Found existing listing with identical image(s) from same sender:');
+                    console.log(`- ID: ${existingListing.id}`);
+                    console.log(`- Title: ${existingListing.title}`);
+                    console.log(`- Matching image: ${matchingImages[0]}`);
+                    console.log(`- Price difference: ${priceDifference}`);
+                  }
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Error checking for image duplicate: ${error.message}`);
+        // Continue with other checks
+      }
+    }
+    
+    // Second check: exact match on date, sender, and WhatsApp group
     let exactMatches;
     try {
       // Try with phone_number field
@@ -278,6 +541,23 @@ async function listingExists(listing, verbose = false) {
     }
     
     if (exactMatches && exactMatches.length > 0) {
+      // Additional check: Make sure the title matches or is similar
+      // This prevents different listings from the same sender at the same time being treated as duplicates
+      if (listing.title && exactMatches[0].title) {
+        const titleSimilarity = calculateTextSimilarity(listing.title.toLowerCase(), exactMatches[0].title.toLowerCase());
+        
+        if (titleSimilarity < 0.7) {
+          if (verbose) {
+            console.log(`Found listing with same date/sender but different title (similarity: ${Math.round(titleSimilarity * 100)}%)`);
+            console.log(`- This listing: "${listing.title}"`);
+            console.log(`- Existing listing: "${exactMatches[0].title}"`);
+            console.log('Not considering as duplicate due to different titles');
+          }
+          // Not a duplicate - different titles
+          return false;
+        }
+      }
+      
       if (verbose) {
         console.log('Found existing listing (exact match):');
         console.log(`- ID: ${exactMatches[0].id}`);

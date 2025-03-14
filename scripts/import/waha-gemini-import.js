@@ -26,6 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // Load environment variables from both project root and local directory
 require('dotenv').config({ path: path.resolve(process.cwd(), '.env.local') });
@@ -36,7 +37,6 @@ const { program } = require('commander');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Import utility modules
-const { getLastImportDate, updateLastImportDate } = require('../../src/utils/metadataUtils');
 const { listingExists, addListing, getLatestMessageTimestampsByGroup } = require('../../src/utils/dbUtils');
 const { extractPhoneNumber } = require('../../src/utils/listingParser');
 
@@ -44,22 +44,16 @@ const { extractPhoneNumber } = require('../../src/utils/listingParser');
 const { 
   WHATSAPP_GROUPS,
   WAHA_BASE_URL,
-  WAHA_SESSION,
-  REDIS_URL, 
-  AWS_BUCKET_NAME, 
-  AWS_BUCKET_REGION,
   getAdminClient,
   checkWahaSessionStatus,
   startWahaSession,
-  waitForWahaAuthentication,
-  createDirectories
+  waitForWahaAuthentication
 } = require('./importUtils');
 
 const {
   uploadImageToSupabase,
-  checkMissingSupabaseImages,
   downloadImageFromWaha
-} = require('../image-handling/imageUtils');
+} = require('../deployment/imageUtils');
 
 // API Prefix for WAHA
 const WAHA_API_PREFIX = '/default';
@@ -299,33 +293,53 @@ async function processUserMessageGroup(userMessages) {
     extractedListing.date = new Date((relatedMessage?.timestamp || userMessages[0].timestamp) * 1000);
     extractedListing.sender = sender;
     extractedListing.whatsappGroup = whatsappGroup;
-    
-    // Handle images
-    if (relatedMessage?.mediaUrl) {
-      extractedListing.imageUrls = [relatedMessage.mediaUrl];
-    } else {
-      extractedListing.imageUrls = imageUrls;
-    }
-    extractedListing.hasImages = extractedListing.imageUrls.length > 0;
-    
-    // Add the raw message text
-    extractedListing.rawText = relatedMessage?.body || combinedMessageData.body;
-    
-    // Add multi-message metadata
-    extractedListing.isMultiUserMessage = true;
+    extractedListing.isMultiUserMessage = userMessages.length > 1;
     extractedListing.messageCount = userMessages.length;
     
-    // Handle sold status
-    if (extractedListing.is_sold) {
-      // Find the message that marked this item as sold, if any
-      const soldMessage = userMessages.find(msg => 
-        msg.containsSoldMarker
-      );
-      
-      if (soldMessage) {
-        extractedListing.soldTimestamp = soldMessage.timestamp;
-        extractedListing.soldDate = new Date(soldMessage.timestamp * 1000);
+    // Set the raw text from the description or from the combined message text
+    extractedListing.rawText = extractedListing.description || 
+                              (relatedMessage ? relatedMessage.body : messagesText);
+    
+    // Add image URLs if available
+    if (relatedMessage && relatedMessage.mediaUrl) {
+      extractedListing.imageUrls = [relatedMessage.mediaUrl];
+    } else if (imageUrls.length > 0) {
+      extractedListing.imageUrls = imageUrls;
+    }
+    
+    // Process images and collect hashes if images are available
+    if (extractedListing.imageUrls && extractedListing.imageUrls.length > 0) {
+      try {
+        // Create a mock wahaClient for compatibility with downloadAndProcessImages
+        const mockWahaClient = { 
+          getMediaUrl: (url) => url // Simple passthrough function
+        };
+        
+        const { images, hashes } = await downloadAndProcessImages(
+          mockWahaClient, 
+          extractedListing, 
+          false // verbose
+        );
+        
+        // Add the processed images and hashes to the listing
+        extractedListing.images = images;
+        extractedListing.image_hashes = hashes;
+      } catch (error) {
+        console.error('Error processing images for listing:', error);
+        extractedListing.images = [];
+        extractedListing.image_hashes = [];
       }
+    } else {
+      extractedListing.images = [];
+      extractedListing.image_hashes = [];
+    }
+    
+    // Check if this listing already exists in the database
+    const exists = await listingExists(extractedListing);
+    
+    if (exists) {
+      console.log(`Skipping duplicate listing: ${extractedListing.title || 'Untitled'}`);
+      continue;
     }
     
     processedListings.push(extractedListing);
@@ -1054,7 +1068,6 @@ async function importWhatsAppListings() {
     await addNewListings(listings, options.verbose);
     
     // Step 7: Update the last import date
-    updateLastImportDate(new Date());
     console.log('\nCompleted WhatsApp import process');
     
   } catch (error) {
@@ -1533,6 +1546,250 @@ async function addNewListings(listings, verbose = false) {
   console.log(`  - Database errors: ${stats.skipped.dbErrors}`);
   
   return addedListings;
+}
+
+/**
+ * Generate a hash of an image buffer for duplicate detection
+ * @param {Buffer} buffer - The image buffer to hash
+ * @returns {string} - The hash string
+ */
+function generateImageHash(buffer) {
+  return crypto.createHash('md5').update(buffer).digest('hex');
+}
+
+/**
+ * Modify the downloadAndUploadImage function to include hash calculation
+ * @param {Object} wahaClient - WAHA client object
+ * @param {string} imageUrl - Image URL to download
+ * @param {string} messageId - Message ID associated with the image
+ * @param {string} groupName - WhatsApp group name
+ * @param {number} index - Image index in the message
+ * @param {boolean} verbose - Whether to show detailed output
+ * @returns {Promise<Object>} - Object containing image path and hash
+ */
+async function downloadAndUploadImage(wahaClient, imageUrl, messageId, groupName, index, verbose = false) {
+  if (verbose) {
+    console.log(`Downloading image from ${imageUrl} (MessageID: ${messageId}, Index: ${index})`);
+  }
+  
+  try {
+    // Check if we have a real wahaClient or our mock client
+    let imageBuffer;
+    
+    if (typeof wahaClient.downloadMediaMessage === 'function') {
+      // Use the real WAHA client's downloadMediaMessage function if it exists
+      imageBuffer = await wahaClient.downloadMediaMessage(imageUrl);
+    } else if (imageUrl && typeof imageUrl === 'string') {
+      // Handle the case when we just have a URL (for our mock client)
+      try {
+        // Special handling for WAHA API file URLs
+        if (imageUrl.includes('/api/files/') || imageUrl.includes('/api/messages/')) {
+          // Use the enhanced downloadImageFromWaha function for this type of URL
+          const tmpPath = path.join(tmpDir, `waha_image_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`);
+          console.log(`Downloading WAHA image to temp path: ${tmpPath}`);
+          
+          const downloadSuccess = await downloadImageFromWaha(imageUrl, tmpPath);
+          
+          if (!downloadSuccess) {
+            console.error(`Failed to download image from WAHA API: ${imageUrl}`);
+            return null;
+          }
+          
+          // Read the downloaded file into a buffer
+          imageBuffer = fs.readFileSync(tmpPath);
+          
+          // Clean up the temp file
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch (unlinkError) {
+            console.warn(`Warning: Could not delete temp file: ${unlinkError.message}`);
+          }
+        } else {
+          // For other URLs, use axios directly
+          const axios = require('axios');
+          const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+          imageBuffer = Buffer.from(response.data, 'binary');
+        }
+      } catch (fetchError) {
+        console.error(`Error fetching image from URL: ${fetchError.message}`);
+        return null;
+      }
+    } else {
+      console.error('Cannot download image: No valid wahaClient or imageUrl');
+      return null;
+    }
+    
+    if (!imageBuffer) {
+      console.error('Failed to download image');
+      return null;
+    }
+    
+    // Generate hash for duplicate detection
+    let imageHash = null;
+    try {
+      imageHash = generateImageHash(imageBuffer);
+    } catch (hashError) {
+      console.warn(`Warning: Could not generate image hash: ${hashError.message}`);
+    }
+  
+    // Upload to Supabase Storage
+    const timestamp = Date.now();
+    // Clean up group name for filename
+    const cleanGroupName = groupName.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
+    const uniqueId = Math.floor(Math.random() * 10000);
+    const filename = `listings/${cleanGroupName}_${index}_${timestamp}_${uniqueId}.jpg`;
+    
+    // Upload to Supabase storage
+    const result = await uploadImageToSupabase(imageBuffer, filename);
+    
+    if (!result) {
+      console.error('Failed to upload image to Supabase');
+      return null;
+    }
+    
+    if (verbose) {
+      console.log(`Successfully uploaded image as ${filename}`);
+    }
+    
+    return { path: filename, hash: imageHash };
+  } catch (error) {
+    console.error(`Error downloading/uploading image: ${error}`);
+    return null;
+  }
+}
+
+// Update the downloadAndProcessImages function to collect hashes
+async function downloadAndProcessImages(wahaClient, listing, verbose = false) {
+  const images = [];
+  const hashes = [];
+  
+  // If there are no image URLs, return empty arrays
+  if (!listing.imageUrls || !Array.isArray(listing.imageUrls) || listing.imageUrls.length === 0) {
+    if (verbose) {
+      console.log('No images to process');
+    }
+    return { images, hashes };
+  }
+  
+  if (verbose) {
+    console.log(`Processing ${listing.imageUrls.length} images for listing`);
+  }
+  
+  let index = 0;
+  let messageId = listing.messageId || 'unknown-message-id';
+  let groupName = listing.whatsappGroup || 'Unknown-Group';
+  
+  for (const imageUrl of listing.imageUrls) {
+    try {
+      // Skip null or empty URLs
+      if (!imageUrl) {
+        continue;
+      }
+      
+      if (verbose) {
+        console.log(`Processing image ${index + 1}/${listing.imageUrls.length}`);
+      }
+      
+      const result = await downloadAndUploadImage(
+        wahaClient,
+        imageUrl,
+        messageId,
+        groupName,
+        index,
+        verbose
+      );
+      
+      if (result) {
+        images.push(result.path);
+        if (result.hash) {
+          hashes.push(result.hash);
+        }
+        if (verbose) {
+          console.log(`Added image: ${result.path}`);
+          if (result.hash) {
+            console.log(`  with hash: ${result.hash}`);
+          }
+        }
+      } else {
+        if (verbose) {
+          console.log(`Failed to process image ${index + 1}`);
+        } else {
+          console.log(`Failed to process image ${index + 1}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing image ${index + 1}:`, error);
+    }
+    
+    index++;
+  }
+  
+  return { images, hashes };
+}
+
+/**
+ * Extract listings from a group of messages using Gemini API
+ * @param {Array} messages - Array of WhatsApp messages
+ * @param {boolean} verbose - Whether to show verbose output
+ * @returns {Promise<Array>} - Array of extracted listings
+ */
+async function extractListingsFromMessages(messages, verbose = false) {
+  try {
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      console.error('Error extracting listings: empty or invalid messages array');
+      return [];
+    }
+    
+    if (verbose) {
+      console.log(`Extracting listings from ${messages.length} messages...`);
+    }
+    
+    // Join message bodies with clear separators for context
+    const messagesText = messages.map((msg, i) => {
+      // Convert Unix timestamp to readable date
+      const dateStr = new Date(msg.timestamp * 1000).toLocaleString();
+      
+      // Add information about replies
+      let replyInfo = '';
+      if (msg.isReply) {
+        replyInfo = ' (REPLY TO PREVIOUS MESSAGE)';
+      }
+      
+      // Add sold marker info
+      let soldInfo = '';
+      if (msg.containsSoldMarker) {
+        soldInfo = ' (MARKED AS SOLD)';
+      }
+      
+      return `Message ${i+1} (${dateStr})${replyInfo}${soldInfo}:\n${msg.body}`;
+    }).join('\n\n---\n\n');
+    
+    // Collect all media URLs from all messages
+    const imageUrls = messages
+      .map(msg => [msg.mediaUrl, msg.quotedMsg?.mediaUrl])
+      .flat()
+      .filter(url => url);
+    
+    // Create message data in the format expected by extractListingsWithGemini
+    const messageData = {
+      body: messagesText, // This is what extractListingsWithGemini expects
+      sender: messages[0].sender,
+      whatsappGroup: messages[0].whatsappGroup,
+      imageUrls: imageUrls
+    };
+    
+    // Use the existing extractListingsWithGemini function
+    const extractedListings = await extractListingsWithGemini(messageData);
+    
+    if (verbose) {
+      console.log(`Extracted ${extractedListings?.length || 0} listings from messages`);
+    }
+    
+    return extractedListings || [];
+  } catch (error) {
+    console.error('Error extracting listings from messages:', error);
+    return []; // Return empty array on error
+  }
 }
 
 importWhatsAppListings();

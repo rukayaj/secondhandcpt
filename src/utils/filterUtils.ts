@@ -90,7 +90,7 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
       }
       // Otherwise, try to find size mentions in the text
       return filters.sizes!.some(size => 
-        listing.text.toLowerCase().includes(size.toLowerCase())
+        listing.text && listing.text.toLowerCase().includes(size.toLowerCase())
       );
     });
   }
@@ -451,7 +451,7 @@ export async function getSizesWithCounts(filters: FilterCriteria = {}) {
         );
       }
       // Fallback to text search
-      return listing.text.toLowerCase().includes(sizeName.toLowerCase());
+      return listing.text && listing.text.toLowerCase().includes(sizeName.toLowerCase());
     }).length;
     
     return { name: sizeName, count };

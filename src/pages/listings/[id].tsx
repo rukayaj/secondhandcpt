@@ -62,10 +62,12 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 
   // Generate a display title from the text
   const displayTitle = listing.text
-    .split('\n')
-    .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-    .join(' ')
-    .substring(0, 60) + (listing.text.length > 60 ? '...' : '');
+    ? listing.text
+        .split('\n')
+        .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+        .join(' ')
+        .substring(0, 60) + (listing.text.length > 60 ? '...' : '')
+    : `${listing.category || 'Item'} for sale`; // Fallback to category or default text
 
   if (!listing) {
     return (
@@ -102,10 +104,12 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   // Generate related item titles
   const getRelatedItemTitle = (item: Listing): string => {
     return item.text
-      .split('\n')
-      .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
-      .join(' ')
-      .substring(0, 60) + (item.text.length > 60 ? '...' : '');
+      ? item.text
+          .split('\n')
+          .filter(line => !line.includes('(file attached)') && !line.startsWith('IMG-'))
+          .join(' ')
+          .substring(0, 60) + (item.text.length > 60 ? '...' : '')
+      : `${item.category || 'Item'} for sale`; // Fallback to category or default text
   };
 
   return (
@@ -202,7 +206,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
               <div className="mb-6">
                 <h2 className="text-lg font-semibold mb-2">Description</h2>
                 <div className="bg-secondary-50 p-4 rounded-md whitespace-pre-line">
-                  {listing.text}
+                  {listing.text || `No description available for this ${listing.category || 'item'}.`}
                 </div>
               </div>
               

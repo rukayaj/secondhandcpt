@@ -12,7 +12,13 @@
  *   --verbose   Show detailed output
  */
 
-require('dotenv').config({ path: '.env.local' });
+// Import path for better directory handling
+const path = require('path');
+
+// Load environment variables from both root and local directory
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
+require('dotenv').config({ path: path.resolve(__dirname, './.env') });
+
 const { program } = require('commander');
 const { getAdminClient, TABLES } = require('../../src/utils/supabaseClient');
 
