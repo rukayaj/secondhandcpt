@@ -5,6 +5,11 @@ export const TABLES = {
   LISTINGS: 'listings',
 };
 
+// Define storage bucket names
+export const STORAGE_BUCKETS = {
+  LISTING_IMAGES: 'listing-images',
+};
+
 // Define the Supabase record type for listings
 export interface ListingRecord {
   id: string;
@@ -23,8 +28,30 @@ export interface ListingRecord {
   sizes: string[] | undefined; // Array of size values
 }
 
-// Create a Supabase client
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-); 
+/**
+ * Get a Supabase client with admin privileges
+ * 
+ * @returns Supabase Admin client
+ */
+export function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
+
+/**
+ * Get a Supabase client with anonymous privileges
+ * This client is suitable for client-side usage
+ * 
+ * @returns Supabase Anonymous client
+ */
+export function getAnonClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
+
+// Create a default Supabase client for client-side usage
+export const supabase = getAnonClient(); 
