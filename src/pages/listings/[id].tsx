@@ -189,6 +189,13 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                     <span>Condition: <span className="font-medium">{listing.condition}</span></span>
                   </div>
                 )}
+
+                {listing.whatsappGroup && (
+                  <div className="flex items-center">
+                    <i className="fab fa-whatsapp mr-2 text-green-600"></i>
+                    <span>Group: <span className="font-medium">{listing.whatsappGroup}</span></span>
+                  </div>
+                )}
               </div>
               
               <div className="mb-6">

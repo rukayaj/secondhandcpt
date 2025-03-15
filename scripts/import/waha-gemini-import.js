@@ -5,26 +5,21 @@
  * then processes them using Google's Gemini API to extract structured listing data,
  * which is then inserted into the database.
  * 
- * Features:
- * - Connects to WAHA API to fetch messages since the last import date
+ * Workflow:
+ * - Connects to WAHA API to fetch messages since the last import time, which is taken to be the timestamp of the most recent message in the database
  * - Uses Gemini to extract structured listing data (Sales and ISO)
  * - Handles image downloads and uploads to Supabase Storage
  * - Updates the database with new listings
+ * - Connects to WAHA API to fetch the oldest message timestamp for each group, this is necessary as different groups have different message expiry settings
+ * - Deletes all older messages for each group
  * 
  * Usage:
  * node scripts/import/waha-gemini-import.js [options]
  * 
  * Options:
  *   --verbose           Show detailed output
- *   --skip-images       Skip processing and uploading images to Supabase Storage
- *   --check-images      Check for missing images in Supabase Storage
- *   --days=<n>          Number of days of history to fetch (default: 30)
  *   --limit=<n>         Limit number of messages per group
- *   --ignore-last-date  Ignore the last import date and use days parameter
- *   --skip-sync         Skip synchronization of expired listings
  */
-
-console.log('DEBUG: Script starting execution');
 
 const fs = require('fs');
 const path = require('path');
@@ -43,7 +38,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 console.log('DEBUG: Dependencies loaded');
 
 // Import utility modules
-const { listingExists, addListing, getLatestMessageTimestampsByGroup } = require('../../src/utils/dbUtils');
+const { listingExists, addListing, getLatestMessageTimestamp } = require('../../src/utils/dbUtils');
 const { extractPhoneNumber } = require('../../src/utils/listingParser');
 
 // Import our consolidated utility modules
@@ -119,66 +114,26 @@ const MIN_AGE_DAYS = 7; // Only expire listings older than 7 days
 const VERIFICATION_ENABLED = true; // Verify listings still exist before expiring
 
 /**
- * Group related messages by sender and message context
- * This helps identify when multiple messages belong to the same conversation thread
+ * Group messages by sender
+ * This helps identify when items are sold, additional info is provided or prices are adjusted
  * 
  * @param {Array} messages - All fetched messages
- * @param {number} timeThresholdHours - Time window in hours to consider messages from the same user as potentially related (default: 72 = 3 days)
- * @returns {Array} - Array of user message groups, each containing all messages from a single user within the timeframe
+ * @returns {Object} - Object where keys are senderid_groupid and values are arrays of messages from that sender
  */
-async function groupRelatedMessages(messages, timeThresholdHours = 72) {
-  // First, group all messages by sender and whatsapp group
+async function groupRelatedMessages(messages) {
   const senderGroups = {};
   
   messages.forEach(message => {
-    // Get the proper sender ID from the message author field if available
-    // This is critical because the author field contains the actual phone number
-    let sender = message.sender || 'unknown';
-    
-    // Extract from _data.author field if available, which is more reliable than the top-level sender field
-    if (message._data && message._data.author && message._data.author._serialized) {
-      sender = message._data.author._serialized;
-      // Also set it on the message object for future reference
-      message.sender = sender;
-    }
-    
-    const key = `${sender}_${message.whatsappGroup}`;
+    const key = `${message._data.author.user}_${message.whatsappGroup}`;
     if (!senderGroups[key]) {
       senderGroups[key] = [];
     }
     senderGroups[key].push(message);
   });
   
-  // Sort each sender's messages by timestamp
-  Object.keys(senderGroups).forEach(key => {
-    senderGroups[key].sort((a, b) => a.timestamp - b.timestamp);
-  });
   
-  // Process each sender's messages to identify reply chains and related messages
-  const userMessageGroups = [];
-  Object.values(senderGroups).forEach(senderMessages => {
-    if (senderMessages.length === 0) return;
-    
-    // Extract quoted message info when available
-    senderMessages.forEach(message => {
-      // Add a property to track if this message is a reply to another message
-      message.isReply = Boolean(message.quotedMsg);
-      message.quotedMsgId = message.quotedMsg?.id;
-      
-      // Check if message contains an "x" or "sold" marker
-      message.containsSoldMarker = 
-        (message.body?.toLowerCase().trim() === 'x') || 
-        (message.body?.toLowerCase().includes('sold')) ||
-        (message.body?.toLowerCase().includes(' x ')) ||
-        (message.body?.toLowerCase().endsWith(' x'));
-    });
-    
-    // Add this sender's message group to the result
-    userMessageGroups.push(senderMessages);
-  });
-  
-  console.log(`Grouped messages into ${userMessageGroups.length} user message groups`);
-  return userMessageGroups;
+  console.log(`Grouped messages into ${senderGroups.length} user message groups`);
+  return senderGroups;
 }
 
 /**
@@ -233,24 +188,16 @@ async function processUserMessageGroup(userMessages) {
   
   console.log(`Processing ${userMessages.length} messages from ${sender} in ${whatsappGroup}`);
   
-  // Join message bodies with clear separators for context
   const messagesText = userMessages.map((msg, i) => {
-    // Convert Unix timestamp to readable date
     const dateStr = new Date(msg.timestamp * 1000).toLocaleString();
     
     // Add information about replies
     let replyInfo = '';
     if (msg.isReply) {
-      replyInfo = ' (REPLY TO PREVIOUS MESSAGE)';
+      replyInfo = ' (REPLY TO PREVIOUS MESSAGE ID )';
     }
     
-    // Add sold marker info
-    let soldInfo = '';
-    if (msg.containsSoldMarker) {
-      soldInfo = ' (MARKED AS SOLD)';
-    }
-    
-    return `Message ${i+1} (${dateStr})${replyInfo}${soldInfo}:\n${msg.body}`;
+    return `Message ${msg.id.id} (${dateStr})${replyInfo}:\n${msg.body}`;
   }).join('\n\n---\n\n');
   
   // Collect all media URLs from all messages
@@ -1094,16 +1041,16 @@ async function importWhatsAppListings() {
       console.log('\nSkipping listing sync (--skip-sync flag was used)');
     }
     
-    // Step 2.5: Get latest message timestamps from database
-    console.log('\nStep 2.5: Getting latest message timestamps from database...');
-    const latestTimestamps = await getLatestMessageTimestampsByGroup();
+    // Step 2.5: Get latest message timestamp from database
+    console.log('\nStep 2.5: Getting latest message timestamp from database...');
+    const latestTimestamps = await getLatestMessageTimestamp();
     
     const groupsWithTimestamps = Object.keys(latestTimestamps).length;
     console.log(`Found timestamps for ${groupsWithTimestamps} groups in database`);
     
     // Step 3: Fetch messages from all groups
     console.log('\nStep 3: Fetching messages from WhatsApp groups...');
-    const allMessages = await fetchAllGroupMessages(options.days, latestTimestamps, options);
+    const allMessages = await fetchNewGroupMessages(latestTimestamps, options);
     if (allMessages.length === 0) {
       console.log('No messages found or unable to fetch messages');
       return;
@@ -1111,8 +1058,8 @@ async function importWhatsAppListings() {
     
     // Step 3.5: Group related messages
     console.log('\nStep 3.5: Grouping related messages...');
-    const messageGroups = await groupRelatedMessages(allMessages, 72); // 72-hour window
-    console.log(`Grouped ${allMessages.length} messages into ${messageGroups.length} message groups`);
+    const messageGroups = await groupRelatedMessages(allMessages);
+    console.log(`Grouped ${allMessages.length} messages into ${Object.values(messageGroups).length} message groups`);
     
     // Step 4: Process message groups with Gemini
     console.log('\nStep 4: Processing message groups with Gemini API...');
@@ -1136,7 +1083,7 @@ async function importWhatsAppListings() {
       listings = await processImages(processedListings, options.verbose);
     }
     
-    // Step 6: Add new listings to the database, checking for duplicates
+    // Step 6: Add new listings to the database
     console.log('\nStep 6: Adding new listings to the database...');
     await addNewListings(listings, options.verbose);
     
@@ -1149,55 +1096,14 @@ async function importWhatsAppListings() {
 }
 
 /**
- * Fetch messages from all configured WhatsApp groups
- * @param {number} days - Number of days of history to fetch
- * @param {Object} options - Additional options including message limit
+ * Fetches new messages from all configured WhatsApp groups
  * @returns {Promise<Array>} - Array of messages
  */
-async function fetchAllGroupMessages(days, latestTimestamps = {}, options = {}) {
-  const allMessages = [];
-  
-  // Set a fallback date based on days parameter
-  const fallbackDate = new Date();
-  fallbackDate.setDate(fallbackDate.getDate() - days);
-  const fallbackTimestamp = Math.floor(fallbackDate.getTime() / 1000); // Convert to seconds for WAHA
-  
-  console.log(`Using fallback date range: Last ${days} days (from ${fallbackDate.toISOString()})`);
-  console.log(`Fallback Unix timestamp: ${fallbackTimestamp}`);
-  
-  // First, check if the session is authenticated
-  try {
-    const sessionStatus = await axios.get(`${WAHA_BASE_URL}/api/sessions/default`);
-    console.log(`Session status: ${sessionStatus.data.status}`);
-    
-    if (sessionStatus.data.status !== 'WORKING') {
-      console.log('Session is not in WORKING state. Starting session...');
-      await axios.post(`${WAHA_BASE_URL}/api/sessions/default/start`);
-      console.log('Session started. Please authenticate in the WhatsApp Web interface.');
-      return [];
-    }
-  } catch (error) {
-    console.error('Error checking session status:', error.message);
-    return [];
-  }
-  
-  // Process each WhatsApp group
+async function fetchNewGroupMessages() {
   for (const group of WHATSAPP_GROUPS) {
-    if (!group.chatId) {
-      console.log(`Skipping group "${group.name}" - no chat ID configured`);
-      continue;
-    }
-    
     console.log(`Fetching messages from group "${group.name}" (${group.chatId})...`);
     
     try {
-      // Determine API limit (use options.limit if defined, otherwise default to 5)
-      const apiLimit = options.limit || 5;
-      console.log(`Limiting to ${apiLimit} messages per group`);
-      
-      // Use group-specific timestamp if available, otherwise use fallback
-      let fromTimestamp = fallbackTimestamp;
-      
       if (latestTimestamps[group.name]) {
         // Convert database timestamp to Unix timestamp and subtract 1 hour buffer
         // The buffer ensures we don't miss any messages due to timezone or slight time differences
@@ -1218,9 +1124,7 @@ async function fetchAllGroupMessages(days, latestTimestamps = {}, options = {}) 
         params: {
           session: 'default',
           chatId: group.chatId,
-          limit: apiLimit,
-          fromMe: false,
-          fromTimestamp: fromTimestamp
+          limit: 100, // To avoid getting banned on Whatsapp
         }
       });
       
@@ -1372,9 +1276,9 @@ async function processImages(listings, verbose = false) {
         console.log(`Uploading image to Supabase with path: ${imagePath}`);
         
         // Upload with direct path to avoid nesting issues
-        const uploadResult = await uploadImageToSupabase(localPath, imagePath, true);
+        const uploadSuccess = await uploadImageToSupabase(localPath, imagePath, true);
         
-        if (uploadResult) {
+        if (uploadSuccess) {
           console.log(`Successfully uploaded image to Supabase`);
           // Add the image path to the listing's images
           supabaseImagePaths.push(imagePath);
@@ -1391,7 +1295,7 @@ async function processImages(listings, verbose = false) {
             console.log(`Deleted temporary file: ${localPath}`);
           }
         } catch (unlinkError) {
-          console.warn(`Warning: Could not delete temp file: ${unlinkError.message}`);
+          console.warn(`Warning: Could not delete temporary file: ${unlinkError.message}`);
         }
       } catch (error) {
         console.error(`Error processing image for ${listing.title || 'Untitled'}: ${error.message}`);
@@ -1420,10 +1324,10 @@ async function processImages(listings, verbose = false) {
 }
 
 /**
- * Add new listings to the database, checking for duplicates
- * @param {Array} listings - The listings to add
+ * Add new listings to the database
+ * @param {Array} listings - Processed listings to add
  * @param {boolean} verbose - Whether to show detailed output
- * @returns {Promise<Array>} - The added listings
+ * @returns {Promise<Array>} - Array of added listings
  */
 async function addNewListings(listings, verbose = false) {
   const addedListings = [];
@@ -1443,205 +1347,37 @@ async function addNewListings(listings, verbose = false) {
   
   console.log(`Processing ${listings.length} listings for database insertion...`);
   
-  // Pre-processing step: Check for cross-group duplicates within the batch
-  // Group listings by sender+text to identify duplicates within the batch
-  const listingsByKey = {};
-  const duplicatesWithinBatch = new Set();
-  
-  // First pass: Group by sender+text key
-  for (let i = 0; i < listings.length; i++) {
-    const listing = listings[i];
-    if (!listing.text || !listing.sender) continue;
-    
-    const key = `${listing.sender}:${listing.text.trim()}`;
-    if (!listingsByKey[key]) {
-      listingsByKey[key] = [i]; // Store index of listing
-    } else {
-      // We found a duplicate within the batch
-      listingsByKey[key].push(i);
-      
-      // Mark all instances as duplicates except the first one
-      for (let j = 1; j < listingsByKey[key].length; j++) {
-        duplicatesWithinBatch.add(listingsByKey[key][j]);
-      }
-    }
-  }
-  
-  if (duplicatesWithinBatch.size > 0) {
-    console.log(`Found ${duplicatesWithinBatch.size} duplicate listings within this batch that will be skipped`);
-  }
-  
-  // Now process each listing
-  for (let i = 0; i < listings.length; i++) {
-    const listing = listings[i];
-    
-    // Skip if this is marked as a duplicate within the batch
-    if (duplicatesWithinBatch.has(i)) {
-      if (verbose) {
-        console.log(`\nSkipping listing: ${listing.title || 'Untitled'} - duplicate found within batch`);
-      }
-      stats.skipped.total++;
-      stats.skipped.alreadyExists++;
-      continue;
-    }
-    
-    if (verbose) {
-      console.log(`\nProcessing listing: ${listing.title || 'Untitled'}`);
-      // Format timestamp for display - convert Unix timestamp to readable date
-      const dateString = listing.timestamp ? new Date(listing.timestamp * 1000).toISOString() : 'Unknown date';
-      console.log(`Group: ${listing.whatsappGroup}, Date: ${dateString}`);
-      if (listing.price) console.log(`Price: ${listing.price}`);
-      if (listing.condition) console.log(`Condition: ${listing.condition}`);
-      if (listing.is_sold) {
-        console.log(`Status: SOLD (Date: ${listing.soldDate ? listing.soldDate.toISOString() : 'Unknown'})`);
-      }
-      if (listing.isMultiUserMessage) console.log(`Multi-message: Yes (${listing.messageCount} messages)`);
-    }
-    
+  for (const listing of listings) {
     try {
-      // Basic validation
-      if (!listing.title || listing.title.trim() === '') {
-        console.log(`Skipping listing with no title: "${listing.rawText?.substring(0, 50)}..."`);
-        stats.skipped.total++;
-        stats.skipped.invalidData++;
-        continue;
-      }
-      
-      // Check if listing already exists in the database
       const exists = await listingExists(listing, verbose);
-      
       if (exists) {
-        if (verbose) {
-          console.log(`Listing already exists in database, skipping`);
-        }
         stats.skipped.total++;
         stats.skipped.alreadyExists++;
         continue;
       }
       
-      // Handle price formatting - ensure it's in the correct format for the database
-      let price = 0;
-      if (listing.price) {
-        if (typeof listing.price === 'number') {
-          // If it's already a number, use it directly
-          price = listing.price;
-        } else if (typeof listing.price === 'string') {
-          // If it's a string, extract the numeric part
-          if (listing.price.toLowerCase() === 'free') {
-            price = 0;
-          } else {
-            // Extract numeric value, handling different formats (R100, 100, R 100)
-            const matches = listing.price.match(/(?:r\s*)?(\d+(?:\.\d+)?)/i);
-            price = matches ? parseFloat(matches[1]) : 0;
-          }
-        }
-      }
-      
-      // Handle collection areas - ensure it's always an array
-      let collectionAreas = [];
-      if (listing.collection_areas) {
-        if (Array.isArray(listing.collection_areas)) {
-          collectionAreas = listing.collection_areas;
-        } else if (typeof listing.collection_areas === 'string') {
-          // Split by comma if it's a comma-separated string
-          collectionAreas = listing.collection_areas.split(',').map(area => area.trim());
-        } else {
-          collectionAreas = [String(listing.collection_areas)];
-        }
-      }
-      
       // Format the listing for database insertion
       const dbListing = {
         title: listing.title,
-        price: price,
-        description: listing.description || listing.rawText,
+        price: listing.price,
+        description: listing.rawText,
         whatsappGroup: listing.whatsappGroup,
         date: listing.date,
         sender: listing.sender,
-        text: listing.rawText,
         images: listing.images || [], // Will have been populated by processImages if images exist
-        condition: listing.condition || 'Unknown',
-        collectionAreas: collectionAreas,
+        condition: listing.condition,
+        collectionAreas: listing.collectionAreas,
         isISO: listing.is_iso || false, // Use the is_iso field from Gemini
         category: listing.category || 'Other',
-        // Add fields for multi-message listings
-        isMultiUserMessage: listing.isMultiUserMessage || false,
-        messageCount: listing.messageCount || 1,
-        // Add sold status and date
         isSold: listing.is_sold || false,
-        soldDate: listing.soldDate || null,
-        // Add sizes array 
         sizes: listing.sizes || []
       };
       
-      // Extract phone number from the message text
-      let phoneNumber = null;
-      try {
-        phoneNumber = extractPhoneNumber(listing.rawText);
-      } catch (error) {
-        console.warn(`Error extracting phone number from text: ${error.message}`);
-      }
-      
-      // If no phone number found in text, try to extract from sender
-      if (!phoneNumber && listing.sender) {
-        // Sender is often in format "XXXXXXXXXXXX@c.us"
-        const senderMatch = listing.sender.match(/(\d+)@c\.us$/);
-        if (senderMatch && senderMatch[1]) {
-          // Normalize to ensure it starts with the proper format for South Africa
-          // Convert WhatsApp format (27XXXXXXXXXX) to local format (0XXXXXXXXX)
-          phoneNumber = senderMatch[1];
-          if (phoneNumber.startsWith('27') && phoneNumber.length >= 11) {
-            phoneNumber = '0' + phoneNumber.substring(2);
-          }
-        }
-      }
-      
-      // Always set both sender and phone_number in the database
-      // This ensures we have the original WhatsApp ID in sender
-      // and the formatted phone number in phone_number
-      if (listing.sender) {
-        dbListing.sender = listing.sender;
-      }
-      
-      // Add phone number to the listing if available
-      if (phoneNumber) {
-        dbListing.phone_number = phoneNumber;
-      } else if (listing.sender) {
-        // If we still don't have a phone number but do have a sender
-        // Try one more time to extract it with a more permissive pattern
-        const lastChanceSenderMatch = listing.sender.match(/(\d+)/);
-        if (lastChanceSenderMatch && lastChanceSenderMatch[1]) {
-          phoneNumber = lastChanceSenderMatch[1];
-          if (phoneNumber.startsWith('27') && phoneNumber.length >= 11) {
-            phoneNumber = '0' + phoneNumber.substring(2);
-            dbListing.phone_number = phoneNumber;
-          }
-        }
-      }
-      
-      // Add to database
       const id = await addListing(dbListing);
-      
-      if (id) {
-        if (verbose) {
-          console.log(`Added listing with ID: ${id}`);
-        }
-        
-        if (listing.is_sold) {
-          stats.soldItems++;
-        } else {
-          stats.added++;
-        }
-        
-        addedListings.push({
-          ...dbListing,
-          id
-        });
-      } else {
-        console.log(`Failed to add listing: ${listing.title}`);
-        stats.skipped.total++;
-        stats.skipped.dbErrors++;
-      }
+      addedListings.push({
+        ...dbListing,
+        id
+      });
     } catch (error) {
       console.error(`Error adding listing: ${error.message}`);
       stats.skipped.total++;
@@ -1673,153 +1409,80 @@ function generateImageHash(buffer) {
 
 /**
  * Download and process images for a listing
- * @param {Object} listing - The listing object
- * @param {boolean} verbose - Whether to output verbose logs
- * @returns {Promise<Object>} - Object with processed images and hashes
+ * @param {Object} listing - The listing to process images for
+ * @param {boolean} verbose - Whether to show detailed logs
+ * @returns {Promise<{images: string[], image_hashes: string[]}>} - Processed images and their hashes
  */
 async function downloadAndProcessImages(listing, verbose = false) {
-  const images = [];
-  const image_hashes = [];
-  
-  if (!listing.imageUrls || listing.imageUrls.length === 0) {
-    if (verbose) console.log('No images to process');
-    return { images, image_hashes };
-  }
-  
-  if (verbose) console.log(`Processing ${listing.imageUrls.length} images...`);
-  
-  for (let i = 0; i < listing.imageUrls.length; i++) {
-    const imageUrl = listing.imageUrls[i];
-    const messageId = listing.messageIds ? listing.messageIds[i] : `unknown_${Date.now()}_${i}`;
-    
-    try {
-      if (verbose) console.log(`\nDownloading image ${i+1}/${listing.imageUrls.length}: ${imageUrl}`);
-      
-      const result = await processWahaImage(imageUrl, messageId, listing.whatsappGroup, verbose);
-      
-      if (result) {
-        if (verbose) {
-          console.log(`Image ${i+1} successfully processed:`);
-          console.log(`- Path: ${result.path}`);
-          console.log(`- Hash: ${result.hash || 'No hash generated'}`);
-        }
-        
-        images.push(result.path);
-        // Make sure we're storing the hash
-        if (result.hash) {
-          image_hashes.push(result.hash);
-        }
-      } else {
-        if (verbose) console.error(`Failed to process image ${i+1}`);
-      }
-    } catch (error) {
-      console.error(`Error processing image ${i+1}: ${error.message}`);
-    }
-  }
-  
-  if (verbose) {
-    console.log(`\nProcessed ${images.length}/${listing.imageUrls.length} images`);
-    console.log(`Generated ${image_hashes.length} image hashes`);
-  }
-  
-  // If we're checking for images and supposed to have images but got none, throw an error
-  if (options.checkImages && listing.imageUrls.length > 0 && images.length === 0) {
-    throw new Error('Failed to process any images for a listing that should have images');
-  }
-  
-  return { images, image_hashes };
-}
-
-/**
- * Process and upload an image from WAHA
- * @param {string} imageUrl - WAHA image URL
- * @param {string} messageId - ID of the WhatsApp message
- * @param {string} groupName - Name of the WhatsApp group
- * @param {boolean} verbose - Whether to output verbose logs
- * @returns {Promise<Object|null>} - Object with image path and hash, or null on failure
- */
-async function processWahaImage(imageUrl, messageId, groupName, verbose = false) {
-  if (verbose) console.log(`Processing WAHA image: ${imageUrl}`);
-  
   try {
-    // Create directory for temporary files if it doesn't exist
-    const tmpDir = path.join(process.cwd(), 'tmp', 'waha-images');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
+    if (!listing || !listing.imageUrls || !Array.isArray(listing.imageUrls) || listing.imageUrls.length === 0) {
+      if (verbose) console.log('No images to process for listing');
+      return { images: [], image_hashes: [] };
     }
     
-    // Create a temporary file for the image
-    const tmpFile = path.join(tmpDir, `image_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`);
-    if (verbose) console.log(`Downloading to temporary file: ${tmpFile}`);
+    if (verbose) console.log(`Processing ${listing.imageUrls.length} images for listing: ${listing.title}`);
     
-    // Download the image
-    const imageBuffer = await downloadImageFromWaha(imageUrl, tmpFile);
+    const processedImages = [];
+    const imageHashes = [];
     
-    if (!imageBuffer) {
-      console.error(`Failed to download image from ${imageUrl}`);
-      return null;
-    }
-    
-    // Verify the file exists and is a valid size
-    if (!fs.existsSync(tmpFile)) {
-      console.error(`Downloaded file does not exist at path: ${tmpFile}`);
-      return null;
-    }
-    
-    const fileStats = fs.statSync(tmpFile);
-    if (fileStats.size < 100) { // Less than 100 bytes is likely invalid
-      console.error(`Downloaded file is too small to be a valid image: ${fileStats.size} bytes`);
+    for (let i = 0; i < listing.imageUrls.length; i++) {
+      const imageUrl = listing.imageUrls[i];
+      if (!imageUrl) continue;
       
       try {
-        fs.unlinkSync(tmpFile);
-      } catch (unlinkError) {
-        console.warn(`Could not remove invalid image file: ${unlinkError.message}`);
+        if (verbose) console.log(`Processing image ${i+1}/${listing.imageUrls.length}: ${imageUrl}`);
+        
+        // Get WhatsApp group directory for storage
+        const groupDirName = listing.whatsappGroup.replace(/[^\w\s]/gi, '').replace(/\s+/g, '-').toLowerCase();
+        
+        // Create a unique filename for the image
+        const extension = 'jpg';  // Assume JPEG for WhatsApp images
+        const timestamp = Date.now();
+        const randomId = Math.floor(Math.random() * 10000);
+        const imageName = `${groupDirName}_${i}_${timestamp}_${randomId}.${extension}`;
+        const storagePath = `listings/${imageName}`;
+        
+        // Create the correct WAHA URL for the image download
+        // The image URL from WAHA messages is usually a relative path or media ID
+        const finalUrl = `${WAHA_BASE_URL}/api/files${WAHA_API_PREFIX}/${imageUrl.split('/').pop()}`;
+        
+        if (verbose) console.log(`Downloading image from: ${finalUrl}`);
+        
+        // Download the image from WAHA
+        const imageBuffer = await downloadImageFromWaha(finalUrl);
+        
+        if (!imageBuffer) {
+          console.error(`Failed to download image from ${finalUrl}`);
+          continue;
+        }
+        
+        // Generate a hash for the image (for duplicate detection)
+        const hash = crypto.createHash('md5').update(imageBuffer).digest('hex');
+        
+        // Upload the image to Supabase Storage
+        const uploadSuccess = await uploadImageToSupabase(imageBuffer, storagePath);
+        
+        if (uploadSuccess) {
+          if (verbose) console.log(`Successfully uploaded image to ${storagePath}`);
+          processedImages.push(storagePath);
+          imageHashes.push(hash);
+        } else {
+          console.error(`Failed to upload image to Supabase Storage: ${storagePath}`);
+        }
+      } catch (error) {
+        console.error(`Error processing image ${i+1}: ${error.message}`);
       }
-      
-      return null;
     }
     
-    // Generate a hash for the image for duplicate detection
-    const fileBuffer = fs.readFileSync(tmpFile);
-    const imageHash = generateImageHash(fileBuffer);
-    if (verbose) console.log(`Generated image hash: ${imageHash}`);
-    
-    // Create a structured path for storage
-    const cleanGroupName = groupName.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
-    const timestamp = Date.now();
-    const uniqueId = Math.floor(Math.random() * 10000);
-    const storageFilename = `listings/${cleanGroupName}_0_${timestamp}_${uniqueId}.jpg`;
-    
-    if (verbose) console.log(`Uploading to Supabase storage as: ${storageFilename}`);
-    
-    // Upload to Supabase storage
-    const supabase = getAdminClient();
-    const uploadResult = await supabase.storage
-      .from('public')
-      .upload(storageFilename, fileBuffer, {
-        contentType: 'image/jpeg',
-        upsert: true
-      });
-    
-    // Clean up the temporary file after successful upload
-    try {
-      fs.unlinkSync(tmpFile);
-      if (verbose) console.log(`Removed temporary file: ${tmpFile}`);
-    } catch (unlinkError) {
-      console.warn(`Warning: Could not delete temp file: ${unlinkError.message}`);
+    if (verbose) {
+      console.log(`Finished processing images for listing: ${listing.title}`);
+      console.log(`- ${processedImages.length}/${listing.imageUrls.length} images successfully processed`);
     }
     
-    if (uploadResult.error) {
-      console.error(`Failed to upload image to Supabase: ${uploadResult.error.message}`);
-      return null;
-    }
-    
-    if (verbose) console.log(`Successfully processed image: ${storageFilename}`);
-    return { path: storageFilename, hash: imageHash };
-    
+    return { images: processedImages, image_hashes: imageHashes };
   } catch (error) {
-    console.error(`Error processing WAHA image: ${error.message}`);
-    return null;
+    console.error(`Error in downloadAndProcessImages: ${error.message}`);
+    return { images: [], image_hashes: [] };
   }
 }
 

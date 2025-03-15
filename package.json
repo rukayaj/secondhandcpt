@@ -9,7 +9,6 @@
     "lint": "next lint",
     "test": "jest",
     "test:structure": "node scripts/test-new-structure.js",
-    
     "# Deployment scripts": "",
     "deploy:scroll-whatsapp": "node scripts/deployment/whatsapp-scroll.js",
     "deploy:update-website": "bash scripts/deployment/update-website.sh",
@@ -21,7 +20,6 @@
     "deploy:update-waha-restart": "bash scripts/deployment/waha-update.sh --restart-waha",
     "deploy:update-waha-full": "bash scripts/deployment/waha-update.sh --restart-waha --deploy",
     "deploy:restart-waha": "docker stop $(docker ps -q --filter 'ancestor=devlikeapro/waha') && docker run -d -p 3001:3000 devlikeapro/waha",
-    
     "# Import scripts": "",
     "import:waha": "node scripts/import/waha-import.js",
     "import:waha-verbose": "node scripts/import/waha-import.js --verbose --days 7",
@@ -33,11 +31,9 @@
     "import:waha-gemini-full": "node scripts/import/waha-gemini-import.js --verbose --upload-images --check-images",
     "import:update-waha-gemini": "npm run deploy:restart-waha && npm run import:waha-gemini-full",
     "import:update-waha-gemini-deploy": "npm run import:update-waha-gemini && npm run vercel-deploy",
-    
     "# Image processing": "",
     "image:process": "node scripts/image-handling/waha-image-handler.js",
     "image:upload": "node scripts/image-handling/waha-image-handler.js --verbose --upload",
-    
     "# Maintenance scripts": "",
     "maintenance:find-duplicates": "node scripts/maintenance/duplicate-finder.js",
     "maintenance:find-duplicates-cross-group": "node scripts/maintenance/duplicate-finder.js --threshold 0.5",
@@ -49,7 +45,6 @@
     "maintenance:find-duplicates-by-phone": "node scripts/maintenance/duplicate-finder.js --use-phone-numbers --no-use-db-queries",
     "maintenance:find-duplicates-db": "node scripts/maintenance/duplicate-finder.js --use-db-queries",
     "maintenance:remove-duplicates-by-phone": "node scripts/maintenance/duplicate-finder.js --use-phone-numbers --no-use-db-queries --remove",
-    
     "# TypeScript scripts": "",
     "ts-scripts:process-whatsapp": "ts-node src/scripts/processNiftyThrifty01Years.ts",
     "ts-scripts:enrich-listings": "ts-node src/scripts/enrichListings.ts",
@@ -60,14 +55,12 @@
     "ts-scripts:import-whatsapp-group": "ts-node src/scripts/importWhatsAppGroup.ts",
     "ts-scripts:update-listings-without-images": "ts-node src/scripts/updateListingsWithoutImages.ts",
     "ts-scripts:manually-review-listings": "ts-node src/scripts/manuallyReviewListingsWithoutImages.ts",
-    
     "# Database scripts": "",
     "db:setup-supabase": "node src/scripts/setupSupabase.js",
     "db:migrate-to-supabase": "node src/scripts/migrateToSupabase.js",
     "db:run-migration": "node scripts/database/run-migration.js",
     "db:add-multi-message-columns": "node scripts/database/run-migration.js add_multi_message_columns.sql",
     "db:switch-to-uncategorised": "echo 'Please run the SQL script scripts/database/switch-to-uncategorised.sql in the Supabase SQL Editor'",
-    
     "# Categorization scripts": "",
     "category:apply": "node scripts/categorization/apply-categories.js",
     "category:with-llm": "node scripts/categorization/categorize-with-llm.js",
@@ -75,7 +68,6 @@
     "category:uncategorised-dry-run": "node scripts/categorization/categorize-with-llm.js --non-interactive --service=openai",
     "category:uncategorised-mock": "node scripts/categorization/categorize-with-llm.js --non-interactive --service=mock --live",
     "category:update-iso-flags": "node scripts/categorization/update-iso-flags.js",
-    
     "# ISO classification scripts": "",
     "iso:classify-with-llm": "node scripts/categorization/classify-iso-with-llm.js",
     "iso:classify-live": "node scripts/categorization/classify-iso-with-llm.js --non-interactive --service=openai --live",
@@ -84,7 +76,6 @@
     "iso:delete-conversations": "node scripts/categorization/classify-iso-with-llm.js --non-interactive --service=openai --live",
     "iso:delete-conversations-dry-run": "node scripts/categorization/classify-iso-with-llm.js --non-interactive --service=openai",
     "iso:cleanup-listings": "node scripts/categorization/classify-iso-with-llm.js --non-interactive --service=openai --live --limit=200",
-    
     "# Vercel deployment": "",
     "vercel-deploy": "vercel --prod"
   },
@@ -102,6 +93,8 @@
     "puppeteer": "^22.15.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-icons": "^5.5.0",
+    "string-similarity": "^4.0.4",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
