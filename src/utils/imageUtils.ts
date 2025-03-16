@@ -1,23 +1,34 @@
 import { supabase } from '@/utils/supabase';
 
 /**
- * Upload an image to Supabase Storage
- * @param file The file to upload
+ * Upload an image buffer to Supabase Storage
+ * @param buffer The buffer to upload
  * @param listingId The ID of the listing the image belongs to
+ * @param options Additional upload options
  * @returns The public URL of the uploaded image
  */
-export async function uploadImage(file: File, listingId: string): Promise<string | null> {
+export async function uploadImage(
+  buffer: Buffer, 
+  listingId: string, 
+  options?: { 
+    filename?: string, 
+    contentType?: string 
+  }
+): Promise<string | null> {
   try {
-    // Get file extension
-    const fileExt = file.name.split('.').pop();
-    // Create a unique filename
+    // Get file extension from options or default to jpg
+    const fileExt = options?.filename ? options.filename.split('.').pop() : 'jpg';
     const fileName = `${listingId}-${Date.now()}.${fileExt}`;
+    const contentType = options?.contentType || 'image/jpeg';
     const filePath = `listings/${fileName}`;
     
-    // Upload the file to Supabase Storage
+    // Upload the buffer to Supabase Storage
     const { data, error } = await supabase.storage
       .from('listing-images')
-      .upload(filePath, file);
+      .upload(filePath, buffer, {
+        contentType,
+        upsert: false
+      });
       
     if (error) {
       console.error('Error uploading image:', error);
@@ -37,13 +48,22 @@ export async function uploadImage(file: File, listingId: string): Promise<string
 }
 
 /**
- * Upload multiple images to Supabase Storage
- * @param files The files to upload
+ * Upload multiple image buffers to Supabase Storage
+ * @param buffers Array of buffers to upload
  * @param listingId The ID of the listing the images belong to
+ * @param options Additional upload options for each buffer
  * @returns An array of public URLs of the uploaded images
  */
-export async function uploadMultipleImages(files: File[], listingId: string): Promise<string[]> {
-  const uploadPromises = Array.from(files).map(file => uploadImage(file, listingId));
+export async function uploadMultipleImages(
+  buffers: Buffer[], 
+  listingId: string,
+  options?: { filename?: string, contentType?: string }[]
+): Promise<string[]> {
+  const uploadPromises = buffers.map((buffer, index) => {
+    const itemOptions = options?.[index];
+    return uploadImage(buffer, listingId, itemOptions);
+  });
+  
   const results = await Promise.all(uploadPromises);
   
   // Filter out null values (failed uploads)

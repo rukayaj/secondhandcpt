@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { formatDate, getConditionColor } from '@/utils/helpers';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
+import { formatWhatsAppGroupName } from '@/utils/formatUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -57,6 +58,9 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   // Use the title field directly - no fallback to ensure titles are always required
   const displayTitle = listing.title;
 
+  // Convert WhatsApp group ID to display name
+  const groupName = formatWhatsAppGroupName(listing.whatsappGroup);
+
   // Use the database category value instead of determining from text
   const category = listing.category || 'Other';
 
@@ -102,8 +106,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         
         {listing.condition && (
           <div 
-            className="absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow"
-            style={getConditionColor(listing.condition)}
+            className={`absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow bg-condition-${listing.condition.toLowerCase() || 'default'} text-white`}
           >
             {listing.condition}
           </div>
@@ -129,6 +132,12 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
               style={{ color: getCategoryColor(category) }}
             ></i>
             <span>{category}</span>
+          </div>
+          
+          {/* Display the WhatsApp group name */}
+          <div className="flex items-center">
+            <i className="fa-brands fa-whatsapp mr-1 text-green-500"></i>
+            <span>{groupName}</span>
           </div>
           
           {listing.collectionAreas && listing.collectionAreas.length > 0 && (

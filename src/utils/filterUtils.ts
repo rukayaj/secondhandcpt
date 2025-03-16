@@ -1,5 +1,5 @@
 import { Listing, getAllListings, getISOPosts } from './listingUtils';
-import { getAllCategories } from './categoryUtils';
+
 
 /**
  * Filter interface to represent all possible filter criteria

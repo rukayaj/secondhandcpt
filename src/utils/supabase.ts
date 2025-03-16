@@ -13,20 +13,20 @@ export const STORAGE_BUCKETS = {
 // Define the Supabase record type for listings
 export interface ListingRecord {
   id: string;
-  whatsapp_group: string;
-  date: string;
-  sender: string;
-  text: string;
   title: string;
-  images: string[] | undefined;
-  price: number | null;
+  price: string | number | null;
+  whatsapp_group: string;
+  text: string;
+  images: string[];
   condition: string | null;
-  collection_areas: string[] | undefined;
-  date_added: string | undefined;
-  checked_on: string | undefined;
-  category: string | undefined;
-  is_iso: boolean | undefined; // Flag for "In Search Of" listings
-  sizes: string[] | undefined; // Array of size values
+  collection_areas: string[];
+  posted_on: string;
+  category: string | null;
+  is_iso: boolean;
+  is_sold: boolean;
+  sender: string;
+  sizes: string[];
+  image_hashes: string[];
 }
 
 /**
