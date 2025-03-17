@@ -1,3 +1,9 @@
+/**
+ * Supabase Client Configuration
+ * 
+ * This module provides a client for read-only access to Supabase
+ */
+
 import { createClient } from '@supabase/supabase-js';
 
 // Define table names
@@ -27,18 +33,6 @@ export interface ListingRecord {
   sender: string;
   sizes: string[];
   image_hashes: string[];
-}
-
-/**
- * Get a Supabase client with admin privileges
- * 
- * @returns Supabase Admin client
- */
-export function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 }
 
 /**

@@ -1,28 +1,10 @@
 /**
  * Unified Listing Service
  * 
- * This module handles all listing-related operations against the database
+ * This module handles all listing-related operations against the database for read-only operations
  */
 
-import { getAdminClient, TABLES, STORAGE_BUCKETS, ListingRecord } from './supabase';
-
-export interface Listing {
-  id?: string;
-  whatsapp_group: string;
-  title: string;
-  text: string;
-  sender: string;
-  price?: string | number | null;
-  condition?: string | null;
-  images?: string[];
-  collection_areas?: string[];
-  category?: string | null;
-  is_iso?: boolean;
-  is_sold?: boolean;
-  sizes?: string[];
-  image_hashes?: string[];
-  posted_on?: string;
-}
+import { supabase, TABLES, type ListingRecord } from './supabase';
 
 // Query options for listing retrieval
 export interface ListingQueryOptions {
@@ -32,17 +14,13 @@ export interface ListingQueryOptions {
   ascending?: boolean;
 }
 
-// Create a Supabase client for all operations
-const supabase = getAdminClient();
-
-
 /**
  * Get all listings from the database with pagination and sorting
  * 
  * @param options Query options for pagination, sorting, etc.
  * @returns Array of listings
  */
-export async function getListings(options: ListingQueryOptions = {}): Promise<Listing[]> {
+export async function getListings(options: ListingQueryOptions = {}): Promise<ListingRecord[]> {
   try {
     const {
       limit = 100,
@@ -74,7 +52,7 @@ export async function getListings(options: ListingQueryOptions = {}): Promise<Li
  * @param id The listing ID
  * @returns The listing or null if not found
  */
-export async function getListingById(id: string): Promise<Listing | null> {
+export async function getListingById(id: string): Promise<ListingRecord | null> {
   try {
     const { data, error } = await supabase
       .from(TABLES.LISTINGS)
@@ -87,7 +65,7 @@ export async function getListingById(id: string): Promise<Listing | null> {
       return null;
     }
     
-    return fromDbFormat(data as ListingRecord);
+    return data;
   } catch (error) {
     console.error(`Error in getListingById: ${error}`);
     return null;
@@ -104,7 +82,7 @@ export async function getListingById(id: string): Promise<Listing | null> {
 export async function searchListings(
   searchTerm: string, 
   options: ListingQueryOptions = {}
-): Promise<Listing[]> {
+): Promise<ListingRecord[]> {
   try {
     const {
       limit = 100,
@@ -141,7 +119,7 @@ export async function searchListings(
 export async function getListingsByCategory(
   category: string,
   options: ListingQueryOptions = {}
-): Promise<Listing[]> {
+): Promise<ListingRecord[]> {
   try {
     const {
       limit = 100,
@@ -179,7 +157,7 @@ export async function getListingsByCategory(
 export async function getListingsByLocation(
   location: string,
   options: ListingQueryOptions = {}
-): Promise<Listing[]> {
+): Promise<ListingRecord[]> {
   try {
     const {
       limit = 100,
@@ -240,7 +218,6 @@ export async function getISOListings(options: ListingQueryOptions = {}): Promise
     return [];
   }
 }
-
 
 /**
  * Get a count of listings by category
