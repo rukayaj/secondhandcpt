@@ -26,12 +26,14 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Load environment variables
 require('dotenv').config({ path: path.resolve(process.cwd(), '.env.local') });
 
-// Import utility modules
-const { listingExists, addListing, getLatestMessageTimestamp } = require('./dbUtils');
+
+// Import the consolidated listing service
+const { getLatestMessageTimestamp, addListings } = require('./listingService');
 
 const WAHA_BASE_URL = 'http://localhost:3001/api/default/';
 
-const { uploadImageToSupabase } = require('./imageUtils');
+// Import imageUtils functions
+const { uploadImage, uploadMultipleImages } = require('./imageUtils');
 
 // Create necessary directories
 const tmpDir = path.join(process.cwd(), 'tmp');
@@ -110,13 +112,14 @@ Return an ARRAY of listings, where each listing has these fields:
 {
   "title": "Brief product title - DO NOT leave this empty or generic. Must be specific and descriptive.",
   "price": "Integer - price without "R" currency symbol or 0 if item is being given away or if this is an In Search Of (ISO) listing",
-  "image_hashes": "An array of image hashes for this listing. Always use an Array even if there is only one hash. "
+  "image_hashes": "An array of image hashes for this listing. Always use an Array even if there is only one hash.",
   "condition": "Standardise to either: New, Good, Fair or Used.",
   "collection_areas": "Where to collect (as a string or array of strings)",
   "is_iso": boolean (true if this is an 'In Search Of' post, not a sales listing),
   "is_sold": boolean (true if the item has been marked as sold/taken),
   "sizes": ["Array of size values - include ALL mentioned sizes"],
-  "category": "Category of item from the following list: Clothing, Maternity Clothing, Footwear, Toys, Furniture, Books, Feeding, Bath, Safety, Bedding, Diapering, Health, Swimming, Gear, Uncategorised"
+  "category": "Category of item from the following list: Clothing, Maternity Clothing, Footwear, Toys, Furniture, Books, Feeding, Bath, Safety, Bedding, Diapering, Health, Swimming, Gear, Uncategorised",
+  "posted_on": "Current timestamp - will be used to record when this listing was posted, if multiple messages contribute to a listing, use the timestamp of the first message."
 }`;
 
     // Generate content from Gemini
@@ -145,30 +148,6 @@ Return an ARRAY of listings, where each listing has these fields:
     console.error('Error in extractListingsWithGemini:', error);
     return null;
   }
-}
-
-/**
- * Find the oldest message timestamp in a WhatsApp Chat/Group
- * @returns {Promise<number|null>} - Timestamp of the oldest message
- */
-async function findOldestMessageTimestamp(chatId) {
-  try {
-    const messagesUrl = `${WAHA_BASE_URL}/chats/${chatId}/messages?limit=1&fromMe=false&order=asc`;
-    const response = await axios.get(messagesUrl);
-    return response.data[0].timestamp;
-  } catch (error) {
-    console.error(`Error finding oldest message timestamp for chat ${chatId}:`, error.message);
-    return null;
-  }
-}
-
-/**
- * Synchronize expired listings
- * @returns {Promise<void>}
- */
-async function syncExpiredListings(options = {}) {
-  // TODO Iterate over whatsapp groups and findOldestMessageTimestamp for each group
-  // Then delete all listings in the database that are in that whatsapp group and are older than the oldest message
 }
 
 /**
@@ -232,14 +211,12 @@ async function importWhatsAppListings() {
         ...listing,
         sender: sender,
         whatsapp_group: group,
-        date: new Date().toISOString()
+        posted_on: new Date().toISOString()
       }));
       
       // Add new listings to the database
-      const addedListings = await addNewListings(enrichedListings);
+      const addedListings = await addListings(enrichedListings);
       console.log(`Added ${addedListings.length} new listings to the database from sender ${sender}`);
-
-      await syncExpiredListings();
     }
     
     console.log('Import process completed successfully.');
@@ -250,132 +227,53 @@ async function importWhatsAppListings() {
 }
 
 /**
- * Fetch new messages from all WhatsApp groups
- * @param {number} lastMessageTimestamp - Timestamp of the last message
- * @returns {Promise<Array>} - Array of new messages
- */
-async function fetchNewGroupMessages(lastMessageTimestamp) {
-  const allMessages = [];
-  
-  for (const group of WHATSAPP_GROUPS) {
-    try {
-      const messagesUrl = `${WAHA_BASE_URL}/api${WAHA_API_PREFIX}/chats/${group.chatId}/messages?limit=${options.limit || 100}&fromMe=false&after=${lastMessageTimestamp}`;
-      const response = await axios.get(messagesUrl);
-      
-      if (response.data && Array.isArray(response.data)) {
-        const messages = response.data;
-        console.log(`Retrieved ${messages.length} messages from ${group.name}`);
-        
-        allMessages.push(...messagesWithGroup);
-      }
-    } catch (error) {
-      console.error(`Error fetching messages for group ${group.name}:`, error.message);
-    }
-  }
-  
-  console.log(`Found ${allMessages.length} total messages`);
-  return allMessages;
-}
-
-/**
  * Process images for a listing
  * @param {Object} listing - Listing with image URLs
- * @param {boolean} verbose - Whether to show detailed output
  * @returns {Promise<Array>} - Array of image paths in Supabase
  */
-async function processImages(listing, verbose = false) {
-  if (!listing.imageUrls || listing.imageUrls.length === 0) {
+async function processImages(listing) {
+  if (!listing.images || listing.images.length === 0) {
     return [];
   }
   
-  console.log(`Processing ${listing.imageUrls.length} images for listing: ${listing.title || 'Untitled'}`);
+  const imageBuffers = [];
+  const imageOptions = [];
   
-  const supabaseImagePaths = [];
-  
-  for (let i = 0; i < listing.imageUrls.length; i++) {
-    const imageUrl = listing.imageUrls[i];
-    
-    if (!imageUrl) {
-      console.log('Skipping empty image URL');
-      continue;
-    }
-    
+  // Download all images as buffers first
+  for (const imageUrl of listing.images) {
     try {
-      // Create a structured path for the image within the listings folder
-      const groupNameForPath = listing.whatsapp_group?.replace(/[@.]/g, '_').substring(0, 20) || 'unknown-group';
+      // Get the image from WAHA  
+      const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+      const buffer = Buffer.from(response.data, 'binary');
       
-      // Use a consistent format for the image path
-      const imagePath = `listings/${groupNameForPath}_${i}_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`;
+      // Determine content type from response headers
+      const contentType = response.headers['content-type'] || 'image/jpeg';
+      const fileExt = contentType.split('/').pop() || 'jpg';
       
-      // Create the correct WAHA URL for the image download
-      const finalUrl = `${WAHA_BASE_URL}/api/files${WAHA_API_PREFIX}/${imageUrl.split('/').pop()}`;
-      
-      // Upload directly to Supabase using URL
-      console.log(`Uploading image to Supabase with path: ${imagePath}`);
-      const uploadSuccess = await uploadImageToSupabase({ url: finalUrl }, imagePath);
-      
-      if (uploadSuccess) {
-        console.log(`Successfully uploaded image to Supabase`);
-        supabaseImagePaths.push(imagePath);
-      } else {
-        console.error(`Failed to upload image to Supabase`);
-      }
-    } catch (error) {
-      console.error(`Error processing image ${i+1}: ${error.message}`);
-    }
-  }
-  
-  return supabaseImagePaths;
-}
-
-/**
- * Add new listings to the database
- * @param {Array} listings - Processed listings to add
- * @param {boolean} verbose - Whether to show detailed output
- * @returns {Promise<Array>} - Array of added listings
- */
-async function addNewListings(listings) {
-  const addedListings = [];
-  
-  console.log(`Processing ${listings.length} listings for database insertion...`);
-  
-  for (const listing of listings) {
-    try {
-      const exists = await listingExists(listing);
-      if (exists) {
-        console.log(`Skipping duplicate listing: ${listing.title || 'Untitled'}`);
-        continue;
-      }
-      
-      // Format the listing for database insertion
-      const dbListing = {
-        title: listing.title,
-        price: listing.price,
-        whatsapp_group: listing.whatsappGroup,
-        text: listing.text,
-        date: listing.date,
-        sender: listing.sender,
-        images: listing.images || [],
-        image_hashes: listing.image_hashes || [],
-        condition: listing.condition,
-        collection_areas: listing.collection_areas || [],
-        is_iso: listing.is_iso || false,
-        category: listing.category || 'Other',
-        is_sold: listing.is_sold || false,
-        sizes: listing.sizes || []
-      };
-      
-      const id = await addListing(dbListing);
-      addedListings.push({
-        ...dbListing,
-        id
+      imageBuffers.push(buffer);
+      imageOptions.push({
+        contentType,
+        filename: `${Date.now()}.${fileExt}`
       });
     } catch (error) {
-      console.error(`Error adding listing: ${error.message}`);
+      console.error(`Error downloading image: ${error.message}`);
     }
   }
   
-  return addedListings;
+  if (imageBuffers.length === 0) {
+    return [];
+  }
+  
+  // Use the bulk upload function from imageUtils
+  try {
+    const listingId = listing.id || `temp-${Date.now()}`;
+    const uploadedUrls = await uploadMultipleImages(imageBuffers, listingId, imageOptions);
+    console.log(`Successfully uploaded ${uploadedUrls.length} images to Supabase`);
+    return uploadedUrls;
+  } catch (error) {
+    console.error(`Error uploading images to Supabase: ${error.message}`);
+    return [];
+  }
 }
 
 // Execute the import process

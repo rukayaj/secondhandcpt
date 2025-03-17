@@ -4,7 +4,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { getAllListings, getListingById, Listing } from '@/utils/listingUtils';
-import { formatDate, getConditionColor } from '@/utils/helpers';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
@@ -79,7 +78,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     );
   }
 
-  const formattedDate = formatDate(listing.date);
+  const formattedDate = listing.date; // TOOD make human readable
   
   const getImageSrc = (imagePath: string) => {
     if (imagePath) {

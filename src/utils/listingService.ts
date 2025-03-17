@@ -6,30 +6,23 @@
 
 import { getAdminClient, TABLES, STORAGE_BUCKETS, ListingRecord } from './supabase';
 
-// The primary interface for working with listings
+// Database format - what Gemini should output directly
 export interface Listing {
-  id?: string; // Optional for new listings
-  whatsappGroup: string;
+  id?: string;
+  whatsapp_group: string;
   title: string;
   text: string;
   sender: string;
   price?: string | number | null;
   condition?: string | null;
   images?: string[];
-  collectionAreas?: string[];
+  collection_areas?: string[];
   category?: string | null;
-  isISO?: boolean;
-  isSold?: boolean;
+  is_iso?: boolean;
+  is_sold?: boolean;
   sizes?: string[];
-  imageHashes?: string[];
-  postedOn?: string; // Optional for new listings, auto-populated
-}
-
-// Statistics returned when adding listings
-interface BatchStats {
-  total: number;
-  added: number;
-  errors: number;
+  image_hashes?: string[];
+  posted_on?: string;
 }
 
 // Query options for listing retrieval
@@ -43,90 +36,67 @@ export interface ListingQueryOptions {
 // Create a Supabase client for all operations
 const supabase = getAdminClient();
 
-/**
- * Convert a client Listing to database format
- */
-function toDbFormat(listing: Listing): Omit<ListingRecord, 'id'> {
-  return {
-    whatsapp_group: listing.whatsappGroup,
-    posted_on: listing.postedOn || new Date().toISOString(),
-    sender: listing.sender,
-    text: listing.text,
-    title: listing.title,
-    images: listing.images || [],
-    price: listing.price || null,
-    condition: listing.condition || null,
-    collection_areas: listing.collectionAreas || [],
-    is_iso: listing.isISO || false,
-    is_sold: listing.isSold || false,
-    category: listing.category || 'Uncategorised',
-    sizes: listing.sizes || [],
-    image_hashes: listing.imageHashes || []
-  };
-}
 
 /**
- * Convert a database record to client format
- */
-function fromDbFormat(record: ListingRecord): Listing {
-  return {
-    id: record.id,
-    whatsappGroup: record.whatsapp_group,
-    title: record.title,
-    text: record.text,
-    sender: record.sender,
-    price: record.price,
-    condition: record.condition,
-    images: record.images || [],
-    collectionAreas: record.collection_areas || [],
-    category: record.category || 'Uncategorised',
-    isISO: record.is_iso || false,
-    isSold: record.is_sold || false,
-    sizes: record.sizes || [],
-    imageHashes: record.image_hashes || [],
-    postedOn: record.posted_on
-  };
-}
-
-/**
- * Add multiple listings to the database
+ * Check if a listing already exists in the database 
+ * Sales listings checked based on image hashes
+ * ISO listings checked based on sender number + raw text
  * 
- * @param listings Array of listings to add
- * @returns Statistics about the operation
+ * @param sender The WhatsApp sender number
+ * @param messageBody The raw message text
+ * @param imageHashes Optional array of image hashes
+ * @returns Whether the listing already exists
  */
-export async function addListings(listings: Listing[]): Promise<BatchStats> {
+async function listingExists(
+  sender: string,
+  messageBody: string,
+  imageHashes?: string[]
+): Promise<boolean> {
+  const supabase = getAdminClient();
+
   try {
-    const stats: BatchStats = {
-      total: listings.length,
-      added: 0,
-      errors: 0
-    };
-    
-    // Format the listings for the database
-    const dbListings = listings.map(toDbFormat);
-    
-    // Add the listings to the database in batches
-    const BATCH_SIZE = 100;
-    for (let i = 0; i < dbListings.length; i += BATCH_SIZE) {
-      const batch = dbListings.slice(i, i + BATCH_SIZE);
-      
+    if (!imageHashes?.length) {
+      // For ISO listings, check based on sender + text
       const { data, error } = await supabase
         .from(TABLES.LISTINGS)
-        .insert(batch);
-      
-      if (error) {
-        console.error(`Error adding batch ${i / BATCH_SIZE + 1}:`, error);
-        stats.errors += batch.length;
-      } else {
-        stats.added += batch.length;
-      }
+        .select('id')
+        .eq('sender', sender)
+        .eq('text', messageBody)
+        .eq('is_iso', true)
+        .limit(1);
+
+      if (error) throw error;
+      return data?.length > 0;
+
+    } else {
+      const { data, error } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('id')
+        .eq('is_iso', false)
+        .contains('image_hashes', imageHashes)
+        .limit(1);
+
+      if (error) throw error;
+      return data.length > 0;
     }
-    
-    return stats;
+
   } catch (error) {
-    console.error('Error in addListings:', error);
-    throw error;
+    console.error('Error checking if listing exists:', error);
+    return false;
   }
+}
+
+/**
+ * Add multiple listings to the database, skipping duplicates
+ * Now accepts listings in DB format directly or in client format
+ * 
+ * @param listings Array of listings to add (in DB format or client format)
+ * @returns Statistics about the operation
+ */
+export async function addListings(listings: Listing[]) {
+  const { data, error } = await supabase
+    .from(TABLES.LISTINGS)
+    .insert(listings);
 }
 
 /**
@@ -154,7 +124,7 @@ export async function getListings(options: ListingQueryOptions = {}): Promise<Li
       throw new Error(`Error getting listings: ${error.message}`);
     }
     
-    return (data || []).map(fromDbFormat);
+    return data
   } catch (error) {
     console.error('Error in getListings:', error);
     return [];
@@ -217,7 +187,7 @@ export async function searchListings(
       throw new Error(`Error searching listings: ${error.message}`);
     }
     
-    return (data || []).map(fromDbFormat);
+    return data;
   } catch (error) {
     console.error('Error in searchListings:', error);
     return [];
@@ -255,7 +225,7 @@ export async function getListingsByCategory(
       return [];
     }
     
-    return (data || []).map(fromDbFormat);
+    return data;
   } catch (error) {
     console.error(`Error in getListingsByCategory: ${error}`);
     return [];
