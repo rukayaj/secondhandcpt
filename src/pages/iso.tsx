@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
 import Pagination from '@/components/Pagination';
-import { getISOPosts, Listing } from '@/utils/listingUtils';
+import { getISOListings } from '@/utils/listingService';
+import { ListingRecord } from '@/utils/supabase';
 import { filterISOPosts, FilterCriteria } from '@/utils/filterUtils';
 import { useRouter } from 'next/router';
 
 interface ISOPageProps {
-  isoPosts: Listing[];
+  isoPosts: ListingRecord[];
   totalPosts: number;
 }
 
@@ -118,49 +119,36 @@ export default function ISOPage({ isoPosts, totalPosts }: ISOPageProps) {
 
 export async function getServerSideProps({ query }: { query: any }) {
   try {
-    const { dateRange, page = '1', category } = query;
-    const currentPage = parseInt(page, 10);
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    // Get page from query or default to 1
+    const page = query.page ? parseInt(query.page) : 1;
     
-    // Create filter criteria
-    const filterCriteria: FilterCriteria = {};
+    // Get date range filter from query
+    const dateRange = query.dateRange ? parseInt(query.dateRange) : undefined;
     
-    // Add date range filter if specified
+    let allIsoPosts;
+    
+    // Apply date range filter if selected
     if (dateRange) {
-      let days: number;
-      switch (dateRange) {
-        case 'today':
-          days = 1;
-          break;
-        case '3days':
-          days = 3;
-          break;
-        case 'week':
-          days = 7;
-          break;
-        case 'month':
-        default:
-          days = 30;
-          break;
-      }
-      filterCriteria.dateRange = days;
+      // Apply filter
+      const filters: FilterCriteria = {
+        dateRange
+      };
+      allIsoPosts = await filterISOPosts(filters);
+    } else {
+      // Get all ISO posts
+      allIsoPosts = await getISOListings();
     }
-    
-    // Add category filter if specified
-    if (category) {
-      filterCriteria.category = category as string;
-    }
-    
-    // Get filtered ISO posts
-    const allIsoPosts = await filterISOPosts(filterCriteria);
     
     // Sort by date (newest first)
-    allIsoPosts.sort((a: Listing, b: Listing) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    allIsoPosts.sort((a: ListingRecord, b: ListingRecord) => 
+      new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime()
+    );
     
     // Get total count for pagination
     const totalPosts = allIsoPosts.length;
     
     // Paginate results
+    const startIndex = (page - 1) * ITEMS_PER_PAGE;
     const paginatedPosts = allIsoPosts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
     
     return {

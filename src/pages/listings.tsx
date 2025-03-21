@@ -6,30 +6,30 @@ import ListingCard from '@/components/ListingCard';
 import FilterSidebar from '@/components/FilterSidebar';
 import Pagination from '@/components/Pagination';
 import { 
-  getAllListings, 
+  getListings, 
   getListingsByCategory, 
   getListingsByLocation, 
-  getListingsByPriceRange,
-  Listing 
-} from '@/utils/listingUtils';
+  getListingsByPriceRange
+} from '@/utils/listingService';
+import { ListingRecord } from '@/utils/supabase';
 import {
   getPriceRangesWithCounts,
-  getDateRangesWithCounts,
   getLocationsWithCounts,
   getCategoriesWithCounts,
+  getDateRangesWithCounts,
   filterListings,
   FilterCriteria,
   getAllFilterOptions
 } from '@/utils/filterUtils';
 
 interface ListingsPageProps {
-  listings: Listing[];
+  listings: ListingRecord[];
   categories: { name: string; count: number }[];
   locations: { name: string; count: number }[];
   priceRanges: { range: string; min: number; max: number; count: number }[];
   dateRanges: { range: string; days: number; count: number }[];
   totalListings: number;
-  allListings: Listing[]; // All listings for client-side filtering
+  allListings: ListingRecord[]; // All listings for client-side filtering
   initialFilterCriteria: FilterCriteria; // Initial filter criteria
 }
 
@@ -52,7 +52,7 @@ export default function ListingsPage({
   
   // State for client-side filtering
   const [filterCriteria, setFilterCriteria] = useState<FilterCriteria>(initialFilterCriteria);
-  const [filteredListings, setFilteredListings] = useState<Listing[]>(initialListings);
+  const [filteredListings, setFilteredListings] = useState<ListingRecord[]>(initialListings);
   const [categories, setCategories] = useState(initialCategories);
   const [locations, setLocations] = useState(initialLocations);
   const [priceRanges, setPriceRanges] = useState(initialPriceRanges);
@@ -125,11 +125,11 @@ export default function ListingsPage({
       try {
         // Filter listings client-side
         const filtered = await filterListings(filterCriteria);
-        const nonISOFiltered = filtered.filter((listing: Listing) => !listing.isISO);
+        const nonISOFiltered = filtered.filter((listing: ListingRecord) => !listing.is_iso);
         
         // Sort by date (newest first)
-        nonISOFiltered.sort((a: Listing, b: Listing) => 
-          new Date(b.date).getTime() - new Date(a.date).getTime()
+        nonISOFiltered.sort((a: ListingRecord, b: ListingRecord) => 
+          new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime()
         );
         
         // Update state with filtered listings and counts
@@ -385,10 +385,10 @@ export async function getServerSideProps({ query }: { query: any }) {
   try {
     // Get filtered listings
     const filteredListings = await filterListings(filterCriteria);
-    const nonISOListings = filteredListings.filter((listing: Listing) => !listing.isISO);
+    const nonISOListings = filteredListings.filter((listing: ListingRecord) => !listing.is_iso);
     
     // Sort by date (newest first)
-    nonISOListings.sort((a: Listing, b: Listing) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    nonISOListings.sort((a: ListingRecord, b: ListingRecord) => new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime());
     
     // Get total count for pagination
     const totalListings = nonISOListings.length;
@@ -400,8 +400,8 @@ export async function getServerSideProps({ query }: { query: any }) {
     const filterOptions = await getAllFilterOptions(filterCriteria);
     
     // Get all listings for client-side filtering
-    const allListings = await getAllListings();
-    const allNonISOListings = allListings.filter((listing: Listing) => !listing.isISO);
+    const allListings = await getListings();
+    const allNonISOListings = allListings.filter((listing: ListingRecord) => !listing.is_iso);
     
     return {
       props: {

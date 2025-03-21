@@ -1,4 +1,5 @@
-import { Listing, getAllListings, getISOPosts } from './listingUtils';
+import { ListingRecord } from './supabase';
+import { getListings, getISOListings } from './listingService';
 
 
 /**
@@ -18,14 +19,14 @@ export interface FilterCriteria {
 /**
  * Filter listings based on multiple criteria
  */
-export async function filterListings(filters: FilterCriteria = {}): Promise<Listing[]> {
+export async function filterListings(filters: FilterCriteria = {}): Promise<ListingRecord[]> {
   // Always fetch fresh listings from the database
-  const listings = await getAllListings();
+  const listings = await getListings();
   let filteredListings = [...listings];
   
   // Filter out ISO posts by default unless explicitly included
   if (filters.includeISO !== true) {
-    filteredListings = filteredListings.filter(listing => !listing.isISO);
+    filteredListings = filteredListings.filter(listing => !listing.is_iso);
   }
   
   // Filter by category
@@ -35,64 +36,69 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
     );
   }
   
-  // Filter by location
+  // Filter by location/area
   if (filters.location) {
-    filteredListings = filteredListings.filter(
-      listing => listing.collectionAreas.some(area => 
+    filteredListings = filteredListings.filter(listing => 
+      listing.collection_areas && listing.collection_areas.some((area: string) => 
         area.toLowerCase().includes(filters.location!.toLowerCase())
       )
     );
   }
   
   // Filter by price range
-  if (filters.minPrice !== undefined && filters.maxPrice !== undefined) {
-    // Special case for "Under R100" where max is 99.99
-    if (filters.minPrice === 0 && filters.maxPrice === 99.99) {
-      filteredListings = filteredListings.filter(
-        listing => listing.price !== null && listing.price <= 100
-      );
-    } else {
-      filteredListings = filteredListings.filter(
-        listing => listing.price !== null && 
-                  listing.price >= filters.minPrice! && 
-                  listing.price <= filters.maxPrice!
-      );
-    }
+  if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
+    filteredListings = filteredListings.filter(listing => {
+      // Skip listings without a price
+      if (listing.price === null || listing.price === undefined || listing.price === '') {
+        return false;
+      }
+      
+      const numericPrice = typeof listing.price === 'string' 
+        ? parseFloat(listing.price) 
+        : listing.price;
+      
+      // Check if it's a valid number
+      if (isNaN(numericPrice)) {
+        return false;
+      }
+      
+      if (filters.minPrice !== undefined && numericPrice < filters.minPrice) {
+        return false;
+      }
+      
+      if (filters.maxPrice !== undefined && numericPrice > filters.maxPrice) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  // Filter by date range
+  if (filters.dateRange) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - filters.dateRange);
+    
+    filteredListings = filteredListings.filter(listing => {
+      const listingDate = new Date(listing.posted_on);
+      return listingDate >= cutoffDate;
+    });
   }
   
   // Filter by condition
   if (filters.condition) {
-    filteredListings = filteredListings.filter(
-      listing => listing.condition === filters.condition
+    filteredListings = filteredListings.filter(listing => 
+      listing.condition === filters.condition
     );
   }
   
-  // Filter by date range (in days)
-  if (filters.dateRange) {
-    const now = new Date();
-    const cutoff = new Date(now.getTime() - (filters.dateRange * 24 * 60 * 60 * 1000));
-    filteredListings = filteredListings.filter(listing => {
-      const listingDate = new Date(listing.dateAdded);
-      return listingDate >= cutoff;
-    });
-  }
-  
-  // Filter by sizes
+  // Filter by size
   if (filters.sizes && filters.sizes.length > 0) {
-    filteredListings = filteredListings.filter(listing => {
-      // If the listing has sizes array, check if any of the sizes match the filter
-      if (listing.sizes && listing.sizes.length > 0) {
-        return filters.sizes!.some(size => 
-          listing.sizes!.some(listingSize => 
-            listingSize.toLowerCase().includes(size.toLowerCase())
-          )
-        );
-      }
-      // Otherwise, try to find size mentions in the text
-      return filters.sizes!.some(size => 
-        listing.text && listing.text.toLowerCase().includes(size.toLowerCase())
-      );
-    });
+    filteredListings = filteredListings.filter(listing => 
+      listing.sizes && listing.sizes.some((size: string) => 
+        filters.sizes!.includes(size)
+      )
+    );
   }
   
   return filteredListings;
@@ -102,9 +108,9 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
  * Get ISO posts with filtering
  * This function works specifically with ISO posts and applies the same filtering options
  */
-export async function filterISOPosts(filters: FilterCriteria = {}): Promise<Listing[]> {
+export async function filterISOPosts(filters: FilterCriteria = {}): Promise<ListingRecord[]> {
   // Get ISO posts (which uses the database is_iso field)
-  const isoPosts = await getISOPosts();
+  const isoPosts = await getISOListings();
   let filteredPosts = [...isoPosts];
   
   // Apply the same filters but skip the ISO check since we know these are all ISO
@@ -119,7 +125,7 @@ export async function filterISOPosts(filters: FilterCriteria = {}): Promise<List
   // Filter by location
   if (filters.location) {
     filteredPosts = filteredPosts.filter(
-      post => post.collectionAreas.some(area => 
+      post => post.collection_areas && post.collection_areas.some((area: string) => 
         area.toLowerCase().includes(filters.location!.toLowerCase())
       )
     );
@@ -131,7 +137,7 @@ export async function filterISOPosts(filters: FilterCriteria = {}): Promise<List
     cutoffDate.setDate(cutoffDate.getDate() - filters.dateRange);
     
     filteredPosts = filteredPosts.filter(post => {
-      const postDate = new Date(post.date);
+      const postDate = new Date(post.posted_on);
       return postDate >= cutoffDate;
     });
   }
@@ -157,6 +163,27 @@ export function countBy<T>(
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {} as { [key: string]: number });
+}
+
+/**
+ * Helper function to get all categories
+ * (temporary replacement for missing getAllCategories function)
+ */
+function getAllCategories(): Record<string, string> {
+  return {
+    'Clothing': 'Clothing',
+    'Toys': 'Toys',
+    'Furniture': 'Furniture',
+    'Footwear': 'Footwear',
+    'Gear': 'Gear',
+    'Feeding': 'Feeding',
+    'Accessories': 'Accessories',
+    'Swimming': 'Swimming',
+    'Bedding': 'Bedding',
+    'Diapers': 'Diapers',
+    'Books': 'Books',
+    'Other': 'Other'
+  };
 }
 
 /**
@@ -326,12 +353,14 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
   // Get all unique locations
   const allLocations = new Set<string>();
   filteredListings.forEach(listing => {
-    listing.collectionAreas.forEach(area => allLocations.add(area));
+    if (listing.collection_areas) {
+      listing.collection_areas.forEach((area: string) => allLocations.add(area));
+    }
   });
   
   return Array.from(allLocations).map(loc => {
     const count = filteredListings.filter(listing => 
-      listing.collectionAreas.includes(loc)
+      listing.collection_areas && listing.collection_areas.includes(loc)
     ).length;
     
     return { name: loc, count };
@@ -357,11 +386,22 @@ export async function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
   ];
   
   return ranges.map(range => {
-    const count = filteredListings.filter(listing => 
-      listing.price !== null && 
-      listing.price >= range.min && 
-      listing.price <= range.max
-    ).length;
+    const count = filteredListings.filter(listing => {
+      if (listing.price === null || listing.price === undefined || listing.price === '') {
+        return false;
+      }
+      
+      const numericPrice = typeof listing.price === 'string' 
+        ? parseFloat(listing.price) 
+        : listing.price;
+      
+      // Check if it's a valid number
+      if (isNaN(numericPrice)) {
+        return false;
+      }
+      
+      return numericPrice >= range.min && numericPrice <= range.max;
+    }).length;
     
     return { ...range, count };
   });
@@ -392,7 +432,7 @@ export async function getDateRangesWithCounts(filters: FilterCriteria = {}) {
     cutoffDate.setDate(now.getDate() - range.days);
     
     const count = filteredListings.filter(listing => {
-      const listingDate = new Date(listing.date);
+      const listingDate = new Date(listing.posted_on);
       return listingDate >= cutoffDate;
     }).length;
     

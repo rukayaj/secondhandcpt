@@ -3,8 +3,10 @@ import { GetStaticPaths, GetStaticProps } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
-import { getAllListings, getListingById, Listing } from '@/utils/listingUtils';
+import { getListings, getListingById } from '@/utils/listingService';
+import { ListingRecord } from '@/utils/supabase';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
+import { formatDate } from '@/utils/formatUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -47,8 +49,8 @@ function getCategoryColor(categoryName: string): string {
 }
 
 interface ListingDetailProps {
-  listing: Listing;
-  relatedListings: Listing[];
+  listing: ListingRecord;
+  relatedListings: ListingRecord[];
 }
 
 export default function ListingDetail({ listing, relatedListings }: ListingDetailProps) {
@@ -78,7 +80,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     );
   }
 
-  const formattedDate = listing.date; // TOOD make human readable
+  const formattedDate = formatDate(listing.posted_on);
   
   const getImageSrc = (imagePath: string) => {
     if (imagePath) {
@@ -95,7 +97,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   };
 
   // Generate related item titles using the title field
-  const getRelatedItemTitle = (item: Listing): string => {
+  const getRelatedItemTitle = (item: ListingRecord): string => {
     return item.title;
   };
 
@@ -170,10 +172,10 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                   <span>{category}</span>
                 </div>
                 
-                {listing.collectionAreas && listing.collectionAreas.length > 0 && (
+                {listing.collection_areas && listing.collection_areas.length > 0 && (
                   <div className="flex items-center">
                     <i className="fa-solid fa-location-dot mr-2"></i>
-                    <span>{listing.collectionAreas.join(', ')}</span>
+                    <span>{listing.collection_areas.join(', ')}</span>
                   </div>
                 )}
                 
@@ -189,10 +191,10 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                   </div>
                 )}
 
-                {listing.whatsappGroup && (
+                {listing.whatsapp_group && (
                   <div className="flex items-center">
                     <i className="fab fa-whatsapp mr-2 text-green-600"></i>
-                    <span>Group: <span className="font-medium">{listing.whatsappGroup}</span></span>
+                    <span>Group: <span className="font-medium">{listing.group_name || listing.whatsapp_group}</span></span>
                   </div>
                 )}
               </div>
@@ -282,7 +284,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
 
 export const getStaticPaths: GetStaticPaths = async () => {
   try {
-    const listings = await getAllListings();
+    const listings = await getListings();
     
     const paths = listings.map((listing) => ({
       params: { id: listing.id },
@@ -313,19 +315,41 @@ export const getStaticProps: GetStaticProps = async ({ params }) => {
     }
     
     // Get related listings (same category or similar price)
-    const allListings = await getAllListings();
+    const allListings = await getListings();
     
     // Find related listings with the same category or similar price
     const relatedListings = allListings
-      .filter(item => 
-        item.id !== listing.id && 
-        (
-          (item.category && item.category.toLowerCase() === listing.category?.toLowerCase()) ||
-          (listing.price && item.price && 
-           item.price >= listing.price * 0.7 && 
-           item.price <= listing.price * 1.3)
-        )
-      )
+      .filter(item => {
+        // Skip if same listing
+        if (item.id === listing.id) return false;
+        
+        // Match by category
+        const matchesCategory = item.category && 
+                               listing.category && 
+                               item.category.toLowerCase() === listing.category.toLowerCase();
+        
+        // Match by price (if available)
+        let matchesPrice = false;
+        
+        if (listing.price && item.price) {
+          // Convert prices to numbers for comparison
+          const listingPrice = typeof listing.price === 'string' 
+            ? parseFloat(listing.price) 
+            : listing.price;
+            
+          const itemPrice = typeof item.price === 'string' 
+            ? parseFloat(item.price) 
+            : item.price;
+          
+          // Check if both are valid numbers
+          if (!isNaN(listingPrice) && !isNaN(itemPrice)) {
+            // Price within 30% range
+            matchesPrice = itemPrice >= listingPrice * 0.7 && itemPrice <= listingPrice * 1.3;
+          }
+        }
+        
+        return matchesCategory || matchesPrice;
+      })
       .slice(0, 6);
     
     return {

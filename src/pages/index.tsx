@@ -2,7 +2,8 @@ import React from 'react';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
-import { getAllListings, getISOPosts, Listing } from '@/utils/listingUtils';
+import { getListings, getISOListings } from '@/utils/listingService';
+import { ListingRecord } from '@/utils/supabase';
 import { getCategoriesWithCounts } from '@/utils/filterUtils';
 import { GetStaticProps } from 'next';
 
@@ -47,26 +48,26 @@ function getCategoryColor(categoryName: string): string {
 }
 
 interface HomePageProps {
-  featuredListings: Listing[];
-  recentISO: Listing[];
+  featuredListings: ListingRecord[];
+  recentISO: ListingRecord[];
   categories: { name: string; count: number }[];
 }
 
 export const getStaticProps: GetStaticProps<HomePageProps> = async () => {
   // Fetch data from Supabase
-  const allListings = await getAllListings();
-  const isoListings = await getISOPosts();
+  const allListings = await getListings();
+  const isoListings = await getISOListings();
   const categoriesWithCounts = await getCategoriesWithCounts();
   
   // Get featured listings (most recent non-ISO listings)
   const featuredListings = allListings
-    .filter(listing => !listing.isISO)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .filter(listing => !listing.is_iso)
+    .sort((a, b) => new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime())
     .slice(0, 12);
   
   // Get recent ISO posts
   const recentISO = isoListings
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort((a, b) => new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime())
     .slice(0, 6);
   
   return {

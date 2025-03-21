@@ -22,10 +22,32 @@ export interface ListingQueryOptions {
  * @returns Same listings with group_name field added
  */
 function addGroupNames(listings: ListingRecord[]): ListingRecord[] {
-  return listings.map(listing => ({
-    ...listing,
-    group_name: WHATSAPP_GROUPS[listing.whatsapp_group] || 'Unknown Group'
-  }));
+  return listings.map(listing => {
+    // Ensure collection_areas is always an array
+    const cleanedListing = { ...listing };
+    
+    // If collection_areas is a string, try to parse it as JSON
+    if (typeof cleanedListing.collection_areas === 'string') {
+      try {
+        // Need to cast to any first to avoid TypeScript errors
+        const parsed = JSON.parse(cleanedListing.collection_areas as any);
+        (cleanedListing as any).collection_areas = Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        // If parsing fails, convert to array with the string as single item
+        (cleanedListing as any).collection_areas = [cleanedListing.collection_areas];
+      }
+    }
+    
+    // If still not an array, initialize as empty array
+    if (!Array.isArray(cleanedListing.collection_areas)) {
+      (cleanedListing as any).collection_areas = [];
+    }
+    
+    return {
+      ...cleanedListing,
+      group_name: WHATSAPP_GROUPS[cleanedListing.whatsapp_group] || 'Unknown Group'
+    };
+  });
 }
 
 /**
@@ -79,11 +101,11 @@ export async function getListingById(id: string): Promise<ListingRecord | null> 
       return null;
     }
     
-    // Add group name to the single listing
-    return {
-      ...data,
-      group_name: WHATSAPP_GROUPS[data.whatsapp_group] || 'Unknown Group'
-    };
+    if (data) {
+      return addGroupNames([data])[0];
+    }
+    
+    return null;
   } catch (error) {
     console.error(`Error in getListingById: ${error}`);
     return null;
