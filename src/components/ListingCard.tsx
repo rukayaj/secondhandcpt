@@ -1,11 +1,10 @@
 import React from 'react';
 import Link from 'next/link';
-import { Listing } from '@/utils/listingUtils';
+import { ListingRecord } from '@/utils/supabase';
 import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { formatDate, getConditionColor } from '@/utils/helpers';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
-import { formatWhatsAppGroupName } from '@/utils/formatUtils';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -48,7 +47,9 @@ function getCategoryColor(categoryName: string): string {
 }
 
 interface ListingCardProps {
-  listing: Listing;
+  listing: ListingRecord;
+  displayMode?: 'grid' | 'list';
+  showDetails?: boolean;
 }
 
 const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
@@ -58,15 +59,15 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   // Use the title field directly - no fallback to ensure titles are always required
   const displayTitle = listing.title;
 
-  // Convert WhatsApp group ID to display name
-  const groupName = formatWhatsAppGroupName(listing.whatsappGroup);
+  // Use the group_name field directly
+  const groupName = listing.group_name || 'Unknown Group';
 
   // Use the database category value instead of determining from text
   const category = listing.category || 'Other';
 
   // Use the image from the listing
   const getImageSrc = () => {
-    if (listing.images && listing.images.length > 0 && !listing.isISO && !imageError) {
+    if (listing.images && listing.images.length > 0 && !listing.is_iso && !imageError) {
       return getFormattedImageUrl(listing.images[0]);
     }
     return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
@@ -77,7 +78,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   return (
     <Link href={`/listings/${listing.id}`} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
       <div className="relative pt-[75%]">
-        {listing.isISO ? (
+        {listing.is_iso ? (
           // For ISO posts, display the category icon instead of an image
           <div className="absolute inset-0 flex items-center justify-center bg-blue-50">
             <i 
@@ -97,7 +98,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           />
         )}
         
-        {listing.isISO && (
+        {listing.is_iso && (
           <div className="absolute top-2 left-2 text-xs font-bold px-2 py-1 rounded shadow flex items-center gap-1" style={{ backgroundColor: '#3b82f6', color: 'white' }}>
             <i className="fa-solid fa-search"></i>
             <span>ISO</span>
@@ -140,10 +141,10 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
             <span>{groupName}</span>
           </div>
           
-          {listing.collectionAreas && listing.collectionAreas.length > 0 && (
+          {listing.collection_areas && listing.collection_areas.length > 0 && (
             <div className="flex items-center">
               <i className="fa-solid fa-location-dot mr-1"></i>
-              <span>{listing.collectionAreas[0]}</span>
+              <span>{listing.collection_areas[0]}</span>
             </div>
           )}
           

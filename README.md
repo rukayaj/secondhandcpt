@@ -12,16 +12,36 @@ This application provides a read-only frontend for browsing and searching listin
 - Filter by location
 - View "In Search Of" (ISO) listings
 - See detailed information for each listing
+- View which WhatsApp group the listing came from in a human-readable format
 
 ## Architecture
 
 The application uses the following technologies:
 
 - **Next.js**: Frontend framework
-- **Supabase**: Backend database and authentication
+- **Supabase**: Backend database and storage
 - **Tailwind CSS**: Styling
 
-The application is structured as a read-only frontend that displays data from the Supabase database. It does not include any functionality for adding, updating, or deleting listings through the application itself.
+The application is structured as a simple read-only frontend that displays data from the Supabase database without any unnecessary complexity.
+
+## Data Structure
+
+The listings data is stored in Supabase as `ListingRecord` objects that include:
+
+- Basic listing information (title, description, price, etc.)
+- Category and condition data
+- Location information
+- WhatsApp group identifiers (stored as codes like "120363139582792913@g.us")
+- Images stored in Supabase storage
+
+### WhatsApp Group Name Conversion
+
+WhatsApp groups are stored in the database using internal identifiers, but the application adds user-friendly group names through a simple mapping process:
+
+1. The listing service (`listingService.ts`) attaches a `group_name` to each listing when retrieved
+2. Components can use this field directly for display
+
+This simplified approach avoids unnecessary data transformations while ensuring users see friendly group names.
 
 ## Environment Variables
 

@@ -1,10 +1,11 @@
 /**
- * Unified Listing Service
+ * Listing Service
  * 
- * This module handles all listing-related operations against the database for read-only operations
+ * Provides read-only access to listings with group name conversion
  */
 
 import { supabase, TABLES, type ListingRecord } from './supabase';
+import { WHATSAPP_GROUPS } from './whatsappGroups';
 
 // Query options for listing retrieval
 export interface ListingQueryOptions {
@@ -15,10 +16,23 @@ export interface ListingQueryOptions {
 }
 
 /**
+ * Add human-readable group names to listings
+ * 
+ * @param listings Array of listings from the database
+ * @returns Same listings with group_name field added
+ */
+function addGroupNames(listings: ListingRecord[]): ListingRecord[] {
+  return listings.map(listing => ({
+    ...listing,
+    group_name: WHATSAPP_GROUPS[listing.whatsapp_group] || 'Unknown Group'
+  }));
+}
+
+/**
  * Get all listings from the database with pagination and sorting
  * 
  * @param options Query options for pagination, sorting, etc.
- * @returns Array of listings
+ * @returns Array of listings with group names
  */
 export async function getListings(options: ListingQueryOptions = {}): Promise<ListingRecord[]> {
   try {
@@ -39,7 +53,7 @@ export async function getListings(options: ListingQueryOptions = {}): Promise<Li
       throw new Error(`Error getting listings: ${error.message}`);
     }
     
-    return data
+    return addGroupNames(data || []);
   } catch (error) {
     console.error('Error in getListings:', error);
     return [];
@@ -65,7 +79,11 @@ export async function getListingById(id: string): Promise<ListingRecord | null> 
       return null;
     }
     
-    return data;
+    // Add group name to the single listing
+    return {
+      ...data,
+      group_name: WHATSAPP_GROUPS[data.whatsapp_group] || 'Unknown Group'
+    };
   } catch (error) {
     console.error(`Error in getListingById: ${error}`);
     return null;
@@ -102,7 +120,7 @@ export async function searchListings(
       throw new Error(`Error searching listings: ${error.message}`);
     }
     
-    return data;
+    return addGroupNames(data || []);
   } catch (error) {
     console.error('Error in searchListings:', error);
     return [];
@@ -140,7 +158,7 @@ export async function getListingsByCategory(
       return [];
     }
     
-    return data;
+    return addGroupNames(data || []);
   } catch (error) {
     console.error(`Error in getListingsByCategory: ${error}`);
     return [];
@@ -178,7 +196,7 @@ export async function getListingsByLocation(
       return [];
     }
     
-    return (data || []).map(fromDbFormat);
+    return addGroupNames(data || []);
   } catch (error) {
     console.error(`Error in getListingsByLocation: ${error}`);
     return [];
@@ -191,7 +209,7 @@ export async function getListingsByLocation(
  * @param options Query options
  * @returns Array of ISO listings
  */
-export async function getISOListings(options: ListingQueryOptions = {}): Promise<Listing[]> {
+export async function getISOListings(options: ListingQueryOptions = {}): Promise<ListingRecord[]> {
   try {
     const {
       limit = 100,
@@ -212,11 +230,35 @@ export async function getISOListings(options: ListingQueryOptions = {}): Promise
       return [];
     }
     
-    return (data || []).map(fromDbFormat);
+    return addGroupNames(data || []);
   } catch (error) {
     console.error(`Error in getISOListings: ${error}`);
     return [];
   }
+}
+
+/**
+ * Get listings by price range
+ * 
+ * @param minPrice Minimum price
+ * @param maxPrice Maximum price
+ * @param options Optional query options
+ * @returns Promise with matching listings
+ */
+export async function getListingsByPriceRange(
+  minPrice: number, 
+  maxPrice: number, 
+  options: ListingQueryOptions = {}
+): Promise<ListingRecord[]> {
+  // Get all listings and filter by price client-side
+  const allListings = await getListings(options);
+  return allListings.filter(listing => {
+    const price = typeof listing.price === 'string' 
+      ? parseFloat(listing.price) 
+      : (listing.price as number);
+    
+    return !isNaN(price) && price >= minPrice && price <= maxPrice;
+  });
 }
 
 /**

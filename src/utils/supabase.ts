@@ -33,6 +33,9 @@ export interface ListingRecord {
   sender: string;
   sizes: string[];
   image_hashes: string[];
+  
+  // For frontend display only (not stored in DB)
+  group_name?: string;
 }
 
 /**
