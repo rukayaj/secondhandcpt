@@ -11,17 +11,20 @@ import { GetStaticProps } from 'next';
 function getCategoryIcon(categoryName: string): string {
   const iconMap: Record<string, string> = {
     'Clothing': 'fa-solid fa-shirt',
+    'Maternity Clothing': 'fa-solid fa-person-pregnant',
     'Toys': 'fa-solid fa-gamepad',
     'Furniture': 'fa-solid fa-couch',
     'Footwear': 'fa-solid fa-shoe-prints',
     'Gear': 'fa-solid fa-baby-carriage',
     'Feeding': 'fa-solid fa-spoon',
-    'Accessories': 'fa-solid fa-hat-cowboy',
-    'Swimming': 'fa-solid fa-water-ladder',
+    'Bath': 'fa-solid fa-bath',
+    'Safety': 'fa-solid fa-shield-alt',
     'Bedding': 'fa-solid fa-bed',
-    'Diapers': 'fa-solid fa-toilet-paper',
+    'Diapering': 'fa-solid fa-toilet-paper',
+    'Health': 'fa-solid fa-kit-medical',
     'Books': 'fa-solid fa-book',
-    'Other': 'fa-solid fa-box-open'
+    'Swimming': 'fa-solid fa-water-ladder',
+    'Uncategorised': 'fa-solid fa-box-open'
   };
   
   return iconMap[categoryName] || 'fa-solid fa-box';
@@ -31,17 +34,20 @@ function getCategoryIcon(categoryName: string): string {
 function getCategoryColor(categoryName: string): string {
   const colorMap: Record<string, string> = {
     'Clothing': '#4F46E5', // indigo
+    'Maternity Clothing': '#D946EF', // fuchsia
     'Toys': '#F59E0B',     // amber
     'Furniture': '#10B981', // emerald
     'Footwear': '#EC4899',  // pink
     'Gear': '#6366F1',     // indigo
     'Feeding': '#EF4444',  // red
-    'Accessories': '#8B5CF6', // purple
-    'Swimming': '#0EA5E9', // sky blue
+    'Bath': '#0EA5E9',     // sky blue
+    'Safety': '#F97316',   // orange
     'Bedding': '#14B8A6',  // teal
-    'Diapers': '#F97316',  // orange
+    'Diapering': '#F97316', // orange
+    'Health': '#10B981',   // emerald
     'Books': '#8B5CF6',    // purple
-    'Other': '#6B7280'     // gray
+    'Swimming': '#0EA5E9', // sky blue
+    'Uncategorised': '#6B7280' // gray
   };
   
   return colorMap[categoryName] || '#6B7280'; // gray as default

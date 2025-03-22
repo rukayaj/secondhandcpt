@@ -1,8 +1,31 @@
 /**
- * Helper Utilities
+ * Utility Functions
  * 
- * A collection of various helper functions used throughout the application
+ * A collection of various utility functions used throughout the application
+ * for formatting, display, and other common operations.
  */
+
+/**
+ * Format a price for display
+ * 
+ * @param price The price as a number or string
+ * @returns Formatted price string with R symbol
+ */
+export function formatPrice(price: number | string | null | undefined): string {
+  if (price === null || price === undefined || price === '') {
+    return 'Price not specified';
+  }
+  
+  // Convert string to number if needed
+  const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
+  
+  // Check if it's a valid number
+  if (isNaN(numericPrice)) {
+    return 'Price not specified';
+  }
+  
+  return `R${numericPrice.toFixed(2)}`;
+}
 
 /**
  * Format a date for display
@@ -11,13 +34,15 @@
  * @returns Formatted date string
  */
 export function formatDate(dateStr: string): string {
+  if (!dateStr) return "No date";
+  
   const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "Invalid date";
+
   return date.toLocaleDateString('en-ZA', { 
     year: 'numeric', 
-    month: 'long', 
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
+    month: 'short', 
+    day: 'numeric'
   });
 }
 
