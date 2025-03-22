@@ -107,7 +107,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         
         {listing.condition && (
           <div 
-            className={`absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow bg-condition-${listing.condition.toLowerCase() || 'default'} text-white`}
+            className="absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow text-white"
+            style={{ backgroundColor: getConditionColor(listing.condition) }}
           >
             {listing.condition}
           </div>

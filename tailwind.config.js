@@ -33,6 +33,14 @@ module.exports = {
           900: '#0f172a',
         },
       },
+      backgroundColor: {
+        'condition-new': '#10B981',      // Green for new
+        'condition-like-new': '#22C55E', // Light green for like new
+        'condition-good': '#3B82F6',     // Blue for good
+        'condition-fair': '#F59E0B',     // Amber for fair
+        'condition-poor': '#EF4444',     // Red for poor
+        'condition-default': '#6B7280',  // Default gray
+      },
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
       },
