@@ -172,17 +172,20 @@ export function countBy<T>(
 function getAllCategories(): Record<string, string> {
   return {
     'Clothing': 'Clothing',
+    'Maternity Clothing': 'Maternity Clothing',
+    'Footwear': 'Footwear',
     'Toys': 'Toys',
     'Furniture': 'Furniture',
-    'Footwear': 'Footwear',
-    'Gear': 'Gear',
-    'Feeding': 'Feeding',
-    'Accessories': 'Accessories',
-    'Swimming': 'Swimming',
-    'Bedding': 'Bedding',
-    'Diapers': 'Diapers',
     'Books': 'Books',
-    'Other': 'Other'
+    'Feeding': 'Feeding',
+    'Bath': 'Bath',
+    'Safety': 'Safety',
+    'Sleep': 'Sleep',
+    'Diapering': 'Diapering',
+    'Health': 'Health',
+    'Outdoor & Swimming': 'Outdoor & Swimming',
+    'Transport & Carriers': 'Transport & Carriers',
+    'Uncategorised': 'Uncategorised'
   };
 }
 
