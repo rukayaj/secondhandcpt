@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import { FilterCriteria } from '@/utils/filterUtils';
+import LoadingSpinner from './LoadingSpinner';
 
 interface FilterSidebarProps {
   categories: { name: string; count: number }[];
@@ -152,6 +153,13 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
 
   const filterContent = (
     <div className="space-y-6">
+      {isLoading && (
+        <div className="flex justify-center items-center py-4">
+          <LoadingSpinner size="sm" />
+          <span className="ml-2 text-primary-600">Updating filters...</span>
+        </div>
+      )}
+
       <div>
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-lg font-semibold">Categories</h3>
@@ -160,6 +168,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
               onClick={() => onClearFilter('category')}
               className="text-xs text-primary-600 hover:text-primary-800"
               aria-label="Clear category filter"
+              disabled={isLoading}
             >
               Clear
             </button>
@@ -179,7 +188,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
               />
               <label 
                 htmlFor={`category-${category.name}`} 
-                className={`flex-1 cursor-pointer ${category.count === 0 ? 'text-secondary-400' : ''}`}
+                className={`flex-1 cursor-pointer ${category.count === 0 ? 'text-secondary-400' : ''} ${isLoading ? 'opacity-70' : ''}`}
               >
                 {category.name}
                 <span className="ml-1 text-secondary-500 text-sm">({category.count})</span>
@@ -296,15 +305,15 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
         </select>
       </div>
 
-      {(selectedCategory || selectedLocation || selectedPriceRange || selectedDateRange) && (
+      <div className="mt-8">
         <button
           onClick={clearFilters}
-          className="w-full py-2 text-primary-600 border border-primary-600 rounded-md hover:bg-primary-50"
+          className="w-full py-2 px-3 bg-secondary-100 hover:bg-secondary-200 text-secondary-700 rounded"
           disabled={isLoading}
         >
-          Clear All Filters
+          {isLoading ? 'Clearing...' : 'Clear All Filters'}
         </button>
-      )}
+      </div>
     </div>
   );
 

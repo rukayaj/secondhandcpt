@@ -21,6 +21,7 @@ import {
   FilterCriteria,
   getAllFilterOptions
 } from '@/utils/filterUtils';
+import LoadingSpinner from '@/components/LoadingSpinner';
 
 interface ListingsPageProps {
   listings: ListingRecord[];
@@ -219,6 +220,19 @@ export default function ListingsPage({
     handleFilterChange(newFilterCriteria);
   };
 
+  // Handle clearing all filters
+  const clearFilters = () => {
+    if (handleFilterChange) {
+      // Client-side filtering
+      handleFilterChange({});
+    } else {
+      // Server-side filtering (fallback)
+      router.push({
+        pathname: router.pathname,
+      });
+    }
+  };
+
   // Calculate total pages
   const totalPages = Math.ceil(totalListings / ITEMS_PER_PAGE);
 
@@ -250,100 +264,109 @@ export default function ListingsPage({
           />
           
           {/* Listings */}
-          <div className="flex-1">
-            {/* Active filters display */}
-            {Object.keys(filterCriteria).length > 0 && (
-              <div className="mb-6 bg-secondary-50 p-4 rounded-lg">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-secondary-700 font-medium">Active filters:</span>
-                  
-                  {filterCriteria.category && (
-                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
-                      Category: {filterCriteria.category}
-                      <button 
-                        onClick={() => handleClearFilter('category')}
-                        className="ml-2 text-secondary-500 hover:text-secondary-700"
-                        aria-label="Remove category filter"
-                      >
-                        ×
-                      </button>
+          <div className="w-full md:w-3/4 md:pl-6">
+            {/* Active filters */}
+            {(filterCriteria.category || filterCriteria.location || (filterCriteria.minPrice !== undefined && filterCriteria.maxPrice !== undefined) || filterCriteria.dateRange) && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {filterCriteria.category && (
+                  <div className="px-3 py-1 bg-secondary-100 rounded-full flex items-center">
+                    <span className="text-sm">Category: {filterCriteria.category}</span>
+                    <button 
+                      onClick={() => handleClearFilter('category')}
+                      className="ml-2 text-secondary-500 hover:text-secondary-700"
+                      disabled={isLoading}
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                )}
+                
+                {filterCriteria.location && (
+                  <div className="px-3 py-1 bg-secondary-100 rounded-full flex items-center">
+                    <span className="text-sm">Location: {filterCriteria.location}</span>
+                    <button 
+                      onClick={() => handleClearFilter('location')}
+                      className="ml-2 text-secondary-500 hover:text-secondary-700"
+                      disabled={isLoading}
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                )}
+                
+                {filterCriteria.minPrice !== undefined && filterCriteria.maxPrice !== undefined && (
+                  <div className="px-3 py-1 bg-secondary-100 rounded-full flex items-center">
+                    <span className="text-sm">
+                      Price: R{filterCriteria.minPrice} - {filterCriteria.maxPrice === 100000 ? "∞" : `R${filterCriteria.maxPrice}`}
                     </span>
-                  )}
-                  
-                  {filterCriteria.location && (
-                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
-                      Location: {filterCriteria.location}
-                      <button 
-                        onClick={() => handleClearFilter('location')}
-                        className="ml-2 text-secondary-500 hover:text-secondary-700"
-                        aria-label="Remove location filter"
-                      >
-                        ×
-                      </button>
+                    <button 
+                      onClick={() => handleClearFilter('minPrice')}
+                      className="ml-2 text-secondary-500 hover:text-secondary-700"
+                      disabled={isLoading}
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                )}
+                
+                {filterCriteria.dateRange && (
+                  <div className="px-3 py-1 bg-secondary-100 rounded-full flex items-center">
+                    <span className="text-sm">
+                      Date: {dateRanges.find(d => d.days === filterCriteria.dateRange)?.range || `Last ${filterCriteria.dateRange} days`}
                     </span>
-                  )}
-                  
-                  {filterCriteria.minPrice !== undefined && filterCriteria.maxPrice !== undefined && (
-                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
-                      Price: R{filterCriteria.minPrice} - R{filterCriteria.maxPrice}
-                      <button 
-                        onClick={() => handleClearFilter('minPrice')}
-                        className="ml-2 text-secondary-500 hover:text-secondary-700"
-                        aria-label="Remove price filter"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  
-                  {filterCriteria.dateRange && (
-                    <span className="inline-flex items-center bg-white border border-secondary-200 rounded-full px-3 py-1 text-sm">
-                      Date: Past {filterCriteria.dateRange} days
-                      <button 
-                        onClick={() => handleClearFilter('dateRange')}
-                        className="ml-2 text-secondary-500 hover:text-secondary-700"
-                        aria-label="Remove date filter"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  )}
-                  
-                  <button
-                    onClick={() => handleFilterChange({})}
-                    className="text-primary-600 hover:text-primary-800 text-sm font-medium"
-                  >
-                    Clear all filters
-                  </button>
-                </div>
+                    <button 
+                      onClick={() => handleClearFilter('dateRange')}
+                      className="ml-2 text-secondary-500 hover:text-secondary-700"
+                      disabled={isLoading}
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             
+            {/* Loading indicator */}
             {isLoading ? (
-              <div className="flex justify-center items-center h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+              <div className="h-96 flex items-center justify-center">
+                <div className="flex flex-col items-center">
+                  <LoadingSpinner size="lg" />
+                  <p className="mt-4 text-primary-600">Loading listings...</p>
+                </div>
               </div>
             ) : filteredListings.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
                   {filteredListings.map((listing) => (
                     <ListingCard key={listing.id} listing={listing} />
                   ))}
                 </div>
                 
-                <Pagination currentPage={currentPage} totalPages={totalPages} />
+                {/* Pagination */}
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  basePath={`/listings`}
+                  query={{
+                    ...router.query,
+                    page: undefined // We will set the page in Pagination component
+                  }}
+                />
               </>
             ) : (
-              <div className="bg-secondary-50 rounded-lg p-8 text-center">
+              <div className="text-center py-12">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-secondary-100 mb-4">
+                  <i className="fas fa-search text-secondary-400 text-2xl"></i>
+                </div>
                 <h2 className="text-xl font-semibold mb-2">No listings found</h2>
-                <p className="text-secondary-600 mb-4">
-                  Try adjusting your filters or check back later for new listings.
+                <p className="text-secondary-600 mb-6">
+                  Try adjusting your filters or browse all categories.
                 </p>
                 <button
-                  onClick={() => handleFilterChange({})}
+                  onClick={clearFilters}
                   className="btn btn-primary"
                 >
-                  Clear Filters
+                  Clear All Filters
                 </button>
               </div>
             )}

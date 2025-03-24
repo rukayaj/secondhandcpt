@@ -24,16 +24,61 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<List
   const listings = await getListings();
   let filteredListings = [...listings];
   
+  // Debug: Check for problematic ID
+  const problematicId = 'false_27787894429-1623257234@g.us_420B3B57A36B89E53F447E681B7F34E8_27729081956@c.us';
+  const existsInRaw = filteredListings.some(listing => listing.id === problematicId);
+  console.log(`Debug filterListings: Problematic listing exists in raw data: ${existsInRaw}`);
+  
   // Filter out ISO posts by default unless explicitly included
   if (filters.includeISO !== true) {
     filteredListings = filteredListings.filter(listing => !listing.is_iso);
+    // Debug: Check after ISO filter
+    const existsAfterIsoFilter = filteredListings.some(listing => listing.id === problematicId);
+    console.log(`Debug filterListings: Problematic listing exists after ISO filter: ${existsAfterIsoFilter}`);
   }
   
   // Filter by category
   if (filters.category) {
-    filteredListings = filteredListings.filter(listing => 
-      listing.category === filters.category
+    console.log(`Filtering by category: "${filters.category}"`);
+    console.log(`Before filter: ${filteredListings.length} listings`);
+    
+    // Debug: Check if problematic listing has matching category
+    const problematicListing = filteredListings.find(listing => listing.id === problematicId);
+    if (problematicListing) {
+      console.log(`Debug filterListings: Problematic listing category: "${problematicListing.category}"`);
+      console.log(`Debug filterListings: Does category match: ${problematicListing.category && filters.category && problematicListing.category.toLowerCase() === filters.category.toLowerCase()}`);
+    }
+    
+    // Updated to use case-insensitive comparison
+    const categorizedListings = filteredListings.filter(listing => 
+      listing.category && filters.category && listing.category.toLowerCase() === filters.category.toLowerCase()
     );
+    
+    // Debug: Check after category filter
+    const existsAfterCategoryFilter = categorizedListings.some(listing => listing.id === problematicId);
+    console.log(`Debug filterListings: Problematic listing exists after category filter: ${existsAfterCategoryFilter}`);
+    
+    // Log the IDs of the filtered listings
+    console.log(`After filter: ${categorizedListings.length} listings`);
+    
+    // Specifically check for our problematic listings
+    const listingIds = [
+      'false_120363190438741302@g.us_88C5950E820C8265AAA1D28C6952F506_27835847692@c.us',
+      'false_27787894429-1623257234@g.us_420B3B57A36B89E53F447E681B7F34E8_27729081956@c.us'
+    ];
+    
+    for (const id of listingIds) {
+      const listing = filteredListings.find(l => l.id === id);
+      if (listing) {
+        console.log(`Found listing ${id}:`);
+        console.log(`- Category: "${listing.category}"`);
+        console.log(`- Is it a match?: ${listing.category && filters.category && listing.category.toLowerCase() === filters.category.toLowerCase()}`);
+      } else {
+        console.log(`Listing ${id} not found in current listings`);
+      }
+    }
+    
+    filteredListings = categorizedListings;
   }
   
   // Filter by location/area
@@ -118,7 +163,7 @@ export async function filterISOPosts(filters: FilterCriteria = {}): Promise<List
   // Filter by category
   if (filters.category) {
     filteredPosts = filteredPosts.filter(post => 
-      post.category === filters.category
+      post.category && filters.category && post.category.toLowerCase() === filters.category.toLowerCase()
     );
   }
   
@@ -208,137 +253,33 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
       includeISO: filters.includeISO === true
     };
     
-    // If we have other filters, we need to filter listings first
-    if (Object.keys(otherFilters).length > 0) {
-      // Use the filters that exclude ISO posts
-      const filteredListings = await filterListings(filtersWithoutISO);
-      
-      // Count occurrences of each category
-      const categoryCounts: Record<string, number> = {};
-      
-      // Initialize with zero counts for all defined categories
-      for (const cat of categoryNames) {
-        categoryCounts[cat] = 0;
-      }
-      
-      // Count category occurrences in the filtered listings
-      for (const listing of filteredListings) {
-        const cat = listing.category || 'Other';
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-      }
-      
-      // Convert to required format with proper ordering
-      return categoryNames
-        .map(name => ({ name, count: categoryCounts[name] || 0 }))
-        .filter(item => item.name !== 'Other' || item.count > 0) // Only include Other if it has counts
-        .sort((a, b) => {
-          // Sort by predefined order, with Other at the end
-          if (a.name === 'Other') return 1;
-          if (b.name === 'Other') return -1;
-          return b.count - a.count; // Then by count
-        });
-    } else {
-      // No other filters, we can use the database function directly
-      // Import the supabase client directly to avoid circular dependencies
-      const { supabase } = await import('./supabase');
-      
-      try {
-        // Try to use the RPC function first, but modify query to exclude ISO posts
-        // NOTE: If your RPC function doesn't have a parameter for excluding ISO posts,
-        // you'll need to use the fallback method below
-        const { data, error } = await supabase.rpc('get_category_counts');
-        
-        if (!error && data) {
-          // We need to filter the results manually to exclude ISO posts
-          // Get all non-ISO listings to calculate correct counts
-          const { data: nonIsoListings, error: listingsError } = await supabase
-            .from('listings')
-            .select('category')
-            .eq('is_iso', false);
-            
-          if (listingsError) {
-            console.error('Error fetching non-ISO listings:', listingsError);
-            // Continue with potentially incorrect counts from RPC
-          } else {
-            // Count occurrences of each category in non-ISO listings
-            const manualCategoryCounts: Record<string, number> = {};
-            for (const listing of nonIsoListings) {
-              const cat = listing.category || 'Other';
-              manualCategoryCounts[cat] = (manualCategoryCounts[cat] || 0) + 1;
-            }
-            
-            // Process the results to match our defined categories
-            return categoryNames
-              .map(name => ({ name, count: manualCategoryCounts[name] || 0 }))
-              .filter(item => item.name !== 'Other' || (manualCategoryCounts[item.name] && manualCategoryCounts[item.name] > 0))
-              .sort((a, b) => {
-                // Sort by predefined order, with Other at the end
-                if (a.name === 'Other') return 1;
-                if (b.name === 'Other') return -1;
-                return b.count - a.count; // Then by count
-              });
-          }
-          
-          // Process the results to match our defined categories (if we didn't do the manual count above)
-          const dbCategories = data.reduce((acc: Record<string, number>, { name, count }: { name: string; count: number }) => {
-            acc[name] = count;
-            return acc;
-          }, {} as Record<string, number>);
-          
-          // Build the result with our defined categories
-          return categoryNames
-            .map(name => ({ name, count: dbCategories[name] || 0 }))
-            .filter(item => item.name !== 'Other' || (dbCategories[item.name] && dbCategories[item.name] > 0))
-            .sort((a, b) => {
-              // Sort by predefined order, with Other at the end
-              if (a.name === 'Other') return 1;
-              if (b.name === 'Other') return -1;
-              return b.count - a.count; // Then by count
-            });
-        }
-        
-        // If RPC fails (function doesn't exist), fallback to manual count
-        console.log('Could not use get_category_counts function, falling back to query...');
-      } catch (err) {
-        console.warn('Error using get_category_counts function:', err);
-      }
-      
-      // Fallback: Query the database and count categories manually, excluding ISO posts
-      const { data: result, error } = await supabase
-        .from('listings')
-        .select('category')
-        .eq('is_iso', false); // Only include non-ISO posts
-      
-      if (error) {
-        console.error('Error fetching categories:', error);
-        return [];
-      }
-      
-      // Count occurrences of each category
-      const categoryCounts: Record<string, number> = {};
-      
-      // Initialize with zero counts for all defined categories
-      for (const cat of categoryNames) {
-        categoryCounts[cat] = 0;
-      }
-      
-      // Count non-ISO listings by category
-      for (const listing of result) {
-        const category = listing.category || 'Other';
-        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-      }
-      
-      // Convert to required format and sort
-      return categoryNames
-        .map(name => ({ name, count: categoryCounts[name] || 0 }))
-        .filter(item => item.count > 0 || (item.name !== 'Other'))
-        .sort((a, b) => {
-          // Sort by predefined order, with Other at the end
-          if (a.name === 'Other') return 1;
-          if (b.name === 'Other') return -1;
-          return b.count - a.count; // Then by count
-        });
+    // Always use filterListings to ensure consistent filtering behavior
+    const filteredListings = await filterListings(filtersWithoutISO);
+    
+    // Count occurrences of each category
+    const categoryCounts: Record<string, number> = {};
+    
+    // Initialize with zero counts for all defined categories
+    for (const cat of categoryNames) {
+      categoryCounts[cat] = 0;
     }
+    
+    // Count category occurrences in the filtered listings
+    for (const listing of filteredListings) {
+      const cat = listing.category || 'Other';
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    }
+    
+    // Convert to required format with proper ordering
+    return categoryNames
+      .map(name => ({ name, count: categoryCounts[name] || 0 }))
+      .filter(item => item.name !== 'Other' || item.count > 0) // Only include Other if it has counts
+      .sort((a, b) => {
+        // Sort by predefined order, with Other at the end
+        if (a.name === 'Other') return 1;
+        if (b.name === 'Other') return -1;
+        return b.count - a.count; // Then by count
+      });
   } catch (error) {
     console.error('Error in getCategoriesWithCounts:', error);
     return [];
@@ -351,7 +292,14 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
 export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
   // Create a copy of filters without the location
   const { location, ...otherFilters } = filters;
-  const filteredListings = await filterListings(otherFilters);
+  
+  // Ensure includeISO is set to false by default to exclude ISO posts from counts
+  const filtersWithoutISO = {
+    ...otherFilters,
+    includeISO: filters.includeISO === true
+  };
+  
+  const filteredListings = await filterListings(filtersWithoutISO);
   
   // Get all unique locations
   const allLocations = new Set<string>();
@@ -376,7 +324,15 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
 export async function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
   // Create a copy of filters without the price range
   const { minPrice, maxPrice, ...otherFilters } = filters;
-  const filteredListings = await filterListings(otherFilters);
+  
+  // Ensure includeISO is set to false by default to exclude ISO posts from counts
+  // This makes the counts match what's displayed on the listings page
+  const filtersWithoutISO = {
+    ...otherFilters,
+    includeISO: filters.includeISO === true
+  };
+  
+  const filteredListings = await filterListings(filtersWithoutISO);
   
   // Define price ranges
   const ranges = [
@@ -416,7 +372,14 @@ export async function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
 export async function getDateRangesWithCounts(filters: FilterCriteria = {}) {
   // Create a copy of filters without the date range
   const { dateRange, ...otherFilters } = filters;
-  const filteredListings = await filterListings(otherFilters);
+  
+  // Ensure includeISO is set to false by default to exclude ISO posts from counts
+  const filtersWithoutISO = {
+    ...otherFilters,
+    includeISO: filters.includeISO === true
+  };
+  
+  const filteredListings = await filterListings(filtersWithoutISO);
   
   // Define date ranges
   const ranges = [
@@ -449,7 +412,14 @@ export async function getDateRangesWithCounts(filters: FilterCriteria = {}) {
 export async function getConditionsWithCounts(filters: FilterCriteria = {}) {
   // Create a copy of filters without the condition
   const { condition, ...otherFilters } = filters;
-  const filteredListings = await filterListings(otherFilters);
+  
+  // Ensure includeISO is set to false by default to exclude ISO posts from counts
+  const filtersWithoutISO = {
+    ...otherFilters,
+    includeISO: filters.includeISO === true
+  };
+  
+  const filteredListings = await filterListings(filtersWithoutISO);
   
   // Define common conditions
   const conditions = ['New', 'Like New', 'Good', 'Fair', 'Poor'];
@@ -469,7 +439,14 @@ export async function getConditionsWithCounts(filters: FilterCriteria = {}) {
 export async function getSizesWithCounts(filters: FilterCriteria = {}) {
   // Create a copy of filters without the sizes
   const { sizes, ...otherFilters } = filters;
-  const filteredListings = await filterListings(otherFilters);
+  
+  // Ensure includeISO is set to false by default to exclude ISO posts from counts
+  const filtersWithoutISO = {
+    ...otherFilters,
+    includeISO: filters.includeISO === true
+  };
+  
+  const filteredListings = await filterListings(filtersWithoutISO);
   
   // Define common sizes to look for
   const commonSizes = [

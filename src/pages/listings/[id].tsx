@@ -139,6 +139,11 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                       className="object-contain"
                       onError={() => setMainImageError(true)}
                     />
+                    {listing.is_sold && (
+                      <div className="absolute top-2 right-2 bg-red-600 text-white py-1 px-3 font-bold text-sm rounded-md shadow-md">
+                        SOLD
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="h-96 bg-secondary-100 flex items-center justify-center">
@@ -172,12 +177,24 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
             
             {/* Listing Details */}
             <div>
-              <h1 className="text-2xl font-bold mb-4">{displayTitle}</h1>
+              <h1 className="text-2xl font-bold mb-4">
+                {displayTitle}
+                {listing.is_sold && (
+                  <span className="ml-2 text-red-600 font-bold">(SOLD)</span>
+                )}
+              </h1>
               
               {listing.is_iso && (
                 <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-white bg-blue-500 text-sm font-semibold mb-4">
                   <i className="fa-solid fa-search"></i>
                   <span>In Search Of</span>
+                </div>
+              )}
+              
+              {listing.is_sold && (
+                <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-white bg-red-600 text-sm font-semibold mb-4">
+                  <i className="fa-solid fa-ban"></i>
+                  <span>SOLD</span>
                 </div>
               )}
               
@@ -282,6 +299,13 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                         </div>
                       )}
                       
+                      {/* SOLD indicator for related items */}
+                      {item.is_sold && (
+                        <div className="absolute top-2 right-2 bg-red-600 text-white py-1 px-3 font-bold text-sm rounded-md shadow-md">
+                          SOLD
+                        </div>
+                      )}
+                      
                       {item.price && (
                         <div className="absolute bottom-2 right-2 bg-primary-600 text-white px-2 py-1 rounded text-sm font-bold">
                           R{item.price}
@@ -290,7 +314,10 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                     </div>
                     
                     <div className="p-4">
-                      <h3 className="font-semibold line-clamp-2">{relatedItemTitle}</h3>
+                      <h3 className="font-semibold line-clamp-2">
+                        {relatedItemTitle}
+                        {item.is_sold && <span className="ml-2 text-red-600">(SOLD)</span>}
+                      </h3>
                     </div>
                   </Link>
                 );

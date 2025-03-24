@@ -112,6 +112,13 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           />
         )}
         
+        {/* SOLD indicator badge instead of overlay */}
+        {listing.is_sold && (
+          <div className="absolute top-2 right-2 bg-red-600 text-white py-1 px-3 font-bold text-sm rounded-md shadow-md">
+            SOLD
+          </div>
+        )}
+        
         {listing.is_iso && (
           <div className="absolute top-2 left-2 text-xs font-bold px-2 py-1 rounded shadow flex items-center gap-1" style={{ backgroundColor: '#3b82f6', color: 'white' }}>
             <i className="fa-solid fa-search"></i>
@@ -133,6 +140,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         <div className="flex justify-between items-start mb-2">
           <h3 className="text-lg font-semibold line-clamp-2">
             {displayTitle}
+            {listing.is_sold && <span className="ml-2 text-red-600">(SOLD)</span>}
           </h3>
           {!listing.is_iso && listing.price && (
             <span className="font-bold text-primary-600 whitespace-nowrap ml-2">
