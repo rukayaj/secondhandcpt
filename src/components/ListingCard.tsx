@@ -126,7 +126,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           </div>
         )}
         
-        {listing.condition && (
+        {/* Only show condition badge if the item is NOT sold */}
+        {listing.condition && !listing.is_sold && (
           <div 
             className="absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow text-white"
             style={{ backgroundColor: getConditionColor(listing.condition) }}
