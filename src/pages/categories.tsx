@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import Layout from '@/components/Layout';
-import { getCategoriesWithCounts } from '@/utils/parser';
+import { getCategoriesWithCounts } from '@/utils/filterUtils';
 
 interface CategoryPageProps {
   categories: {
@@ -50,17 +50,20 @@ export default function CategoriesPage({ categories }: CategoryPageProps) {
 function getCategoryIcon(categoryName: string): string {
   const iconMap: Record<string, string> = {
     'Clothing': 'fa-solid fa-shirt',
+    'Maternity Clothing': 'fa-solid fa-person-pregnant',
+    'Footwear': 'fa-solid fa-shoe-prints',
     'Toys': 'fa-solid fa-gamepad',
     'Furniture': 'fa-solid fa-couch',
-    'Footwear': 'fa-solid fa-shoe-prints',
-    'Gear': 'fa-solid fa-baby-carriage',
-    'Feeding': 'fa-solid fa-spoon',  // Simple spoon icon for feeding
-    'Accessories': 'fa-solid fa-hat-cowboy',
-    'Swimming': 'fa-solid fa-water-ladder',
-    'Bedding': 'fa-solid fa-bed',
-    'Diapers': 'fa-solid fa-toilet-paper',
     'Books': 'fa-solid fa-book',
-    'Other': 'fa-solid fa-box-open'
+    'Feeding': 'fa-solid fa-spoon',
+    'Bath': 'fa-solid fa-bath',
+    'Safety': 'fa-solid fa-shield-alt',
+    'Sleep': 'fa-solid fa-bed',
+    'Diapering': 'fa-solid fa-toilet-paper',
+    'Health': 'fa-solid fa-kit-medical',
+    'Outdoor & Swimming': 'fa-solid fa-water-ladder',
+    'Transport & Carriers': 'fa-solid fa-baby-carriage',
+    'Uncategorised': 'fa-solid fa-box-open'
   };
   
   return iconMap[categoryName] || 'fa-solid fa-box';
@@ -70,32 +73,45 @@ function getCategoryIcon(categoryName: string): string {
 function getCategoryColor(categoryName: string): string {
   const colorMap: Record<string, string> = {
     'Clothing': '#4F46E5', // indigo
+    'Maternity Clothing': '#D946EF', // fuchsia
+    'Footwear': '#EC4899',  // pink
     'Toys': '#F59E0B',     // amber
     'Furniture': '#10B981', // emerald
-    'Footwear': '#EC4899',  // pink
-    'Gear': '#6366F1',     // indigo
-    'Feeding': '#EF4444',  // red
-    'Accessories': '#8B5CF6', // purple
-    'Swimming': '#0EA5E9', // sky blue
-    'Bedding': '#14B8A6',  // teal
-    'Diapers': '#F97316',  // orange
     'Books': '#8B5CF6',    // purple
-    'Other': '#6B7280'     // gray
+    'Feeding': '#EF4444',  // red
+    'Bath': '#0EA5E9',     // sky blue
+    'Safety': '#F97316',   // orange
+    'Sleep': '#14B8A6',  // teal
+    'Diapering': '#F97316', // orange
+    'Health': '#10B981',   // emerald
+    'Outdoor & Swimming': '#0EA5E9', // sky blue
+    'Transport & Carriers': '#6366F1',     // indigo
+    'Uncategorised': '#6B7280' // gray
   };
   
   return colorMap[categoryName] || '#6B7280'; // gray as default
 }
 
 export async function getStaticProps() {
-  const categories = getCategoriesWithCounts();
-  
-  // Sort categories by count (most items first)
-  categories.sort((a, b) => b.count - a.count);
-  
-  return {
-    props: {
-      categories,
-    },
-    revalidate: 3600, // Revalidate every hour
-  };
+  try {
+    const categories = await getCategoriesWithCounts();
+    
+    // Sort categories by count (most items first)
+    categories.sort((a, b) => b.count - a.count);
+    
+    return {
+      props: {
+        categories,
+      },
+      revalidate: 3600, // Revalidate every hour
+    };
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    return {
+      props: {
+        categories: [],
+      },
+      revalidate: 3600,
+    };
+  }
 } 

@@ -3,10 +3,11 @@ import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import ListingCard from '../components/ListingCard';
 import Pagination from '../components/Pagination';
-import { searchListings, Listing } from '../utils/parser';
+import { searchListings } from '@/utils/listingService';
+import { type ListingRecord } from '@/utils/supabase';
 
 interface SearchPageProps {
-  listings: Listing[];
+  listings: ListingRecord[];
   totalListings: number;
   searchTerm: string;
 }
@@ -66,11 +67,11 @@ export async function getServerSideProps({ query }: { query: any }) {
   const currentPage = parseInt(page, 10);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   
-  // Search listings by search term
-  const filteredListings = searchListings(searchTerm);
+  // Search listings by search term using database query
+  const filteredListings = await searchListings(searchTerm);
   
   // Sort by date (newest first)
-  filteredListings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  filteredListings.sort((a, b) => new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime());
   
   // Get total count for pagination
   const totalListings = filteredListings.length;

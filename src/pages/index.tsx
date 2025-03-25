@@ -2,23 +2,29 @@ import React from 'react';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import ListingCard from '@/components/ListingCard';
-import { getAllListings, getCategoriesWithCounts, getISOPosts, Listing } from '@/utils/parser';
+import { getListings, getISOListings } from '@/utils/listingService';
+import { ListingRecord } from '@/utils/supabase';
+import { getCategoriesWithCounts } from '@/utils/filterUtils';
+import { GetStaticProps } from 'next';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
   const iconMap: Record<string, string> = {
     'Clothing': 'fa-solid fa-shirt',
+    'Maternity Clothing': 'fa-solid fa-person-pregnant',
+    'Footwear': 'fa-solid fa-shoe-prints',
     'Toys': 'fa-solid fa-gamepad',
     'Furniture': 'fa-solid fa-couch',
-    'Footwear': 'fa-solid fa-shoe-prints',
-    'Gear': 'fa-solid fa-baby-carriage',
-    'Feeding': 'fa-solid fa-spoon',
-    'Accessories': 'fa-solid fa-hat-cowboy',
-    'Swimming': 'fa-solid fa-water-ladder',
-    'Bedding': 'fa-solid fa-bed',
-    'Diapers': 'fa-solid fa-toilet-paper',
     'Books': 'fa-solid fa-book',
-    'Other': 'fa-solid fa-box-open'
+    'Feeding': 'fa-solid fa-spoon',
+    'Bath': 'fa-solid fa-bath',
+    'Safety': 'fa-solid fa-shield-alt',
+    'Sleep': 'fa-solid fa-bed',
+    'Diapering': 'fa-solid fa-toilet-paper',
+    'Health': 'fa-solid fa-kit-medical',
+    'Outdoor & Swimming': 'fa-solid fa-water-ladder',
+    'Transport & Carriers': 'fa-solid fa-baby-carriage',
+    'Uncategorised': 'fa-solid fa-box-open'
   };
   
   return iconMap[categoryName] || 'fa-solid fa-box';
@@ -28,27 +34,58 @@ function getCategoryIcon(categoryName: string): string {
 function getCategoryColor(categoryName: string): string {
   const colorMap: Record<string, string> = {
     'Clothing': '#4F46E5', // indigo
+    'Maternity Clothing': '#D946EF', // fuchsia
+    'Footwear': '#EC4899',  // pink
     'Toys': '#F59E0B',     // amber
     'Furniture': '#10B981', // emerald
-    'Footwear': '#EC4899',  // pink
-    'Gear': '#6366F1',     // indigo
-    'Feeding': '#EF4444',  // red
-    'Accessories': '#8B5CF6', // purple
-    'Swimming': '#0EA5E9', // sky blue
-    'Bedding': '#14B8A6',  // teal
-    'Diapers': '#F97316',  // orange
     'Books': '#8B5CF6',    // purple
-    'Other': '#6B7280'     // gray
+    'Feeding': '#EF4444',  // red
+    'Bath': '#0EA5E9',     // sky blue
+    'Safety': '#F97316',   // orange
+    'Sleep': '#14B8A6',  // teal
+    'Diapering': '#F97316', // orange
+    'Health': '#10B981',   // emerald
+    'Outdoor & Swimming': '#0EA5E9', // sky blue
+    'Transport & Carriers': '#6366F1',     // indigo
+    'Uncategorised': '#6B7280' // gray
   };
   
   return colorMap[categoryName] || '#6B7280'; // gray as default
 }
 
 interface HomePageProps {
-  featuredListings: Listing[];
-  recentISO: Listing[];
+  featuredListings: ListingRecord[];
+  recentISO: ListingRecord[];
   categories: { name: string; count: number }[];
 }
+
+export const getStaticProps: GetStaticProps<HomePageProps> = async () => {
+  // Fetch data from Supabase
+  const allListings = await getListings();
+  const isoListings = await getISOListings();
+  const categoriesWithCounts = await getCategoriesWithCounts();
+  
+  // Get featured listings (most recent non-ISO listings)
+  const featuredListings = allListings
+    .filter(listing => !listing.is_iso)
+    .sort((a, b) => new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime())
+    .slice(0, 12);
+  
+  // Get recent ISO posts
+  const recentISO = isoListings
+    .sort((a, b) => new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime())
+    .slice(0, 6);
+  
+  return {
+    props: {
+      featuredListings,
+      recentISO,
+      categories: categoriesWithCounts
+    },
+    // Revalidate every hour
+    revalidate: 3600
+  };
+};
 
 export default function HomePage({ featuredListings, recentISO, categories }: HomePageProps) {
   return (
@@ -134,33 +171,4 @@ export default function HomePage({ featuredListings, recentISO, categories }: Ho
       </div>
     </Layout>
   );
-}
-
-export async function getStaticProps() {
-  // Get all listings
-  const allListings = getAllListings();
-  
-  // Get featured listings (non-ISO posts with images, sorted by date)
-  const featuredListings = allListings
-    .filter(listing => !listing.isISO && listing.price !== null)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 8);
-  
-  // Get recent ISO posts
-  const recentISO = getISOPosts()
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 4);
-  
-  // Get categories with counts
-  const categories = getCategoriesWithCounts();
-  
-  return {
-    props: {
-      featuredListings,
-      recentISO,
-      categories,
-    },
-    // Revalidate every hour
-    revalidate: 3600,
-  };
 }

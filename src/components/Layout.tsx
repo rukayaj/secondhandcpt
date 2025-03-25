@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import Header from './Header';
+import LoadingSpinner from './LoadingSpinner';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,6 +15,31 @@ const Layout: React.FC<LayoutProps> = ({
   title = 'Nifty Thrifty - Baby Items in Cape Town',
   description = 'Find second-hand baby items in Cape Town. A better way to browse WhatsApp groups.',
 }) => {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Handle route change start
+    const handleStart = () => {
+      setLoading(true);
+    };
+
+    // Handle route change complete
+    const handleComplete = () => {
+      setLoading(false);
+    };
+
+    router.events.on('routeChangeStart', handleStart);
+    router.events.on('routeChangeComplete', handleComplete);
+    router.events.on('routeChangeError', handleComplete);
+
+    return () => {
+      router.events.off('routeChangeStart', handleStart);
+      router.events.off('routeChangeComplete', handleComplete);
+      router.events.off('routeChangeError', handleComplete);
+    };
+  }, [router]);
+
   return (
     <>
       <Head>
@@ -24,6 +51,8 @@ const Layout: React.FC<LayoutProps> = ({
       </Head>
 
       <div className="flex flex-col min-h-screen">
+        {loading && <LoadingSpinner fullScreen />}
+        
         <Header />
 
         <main className="flex-grow py-8">

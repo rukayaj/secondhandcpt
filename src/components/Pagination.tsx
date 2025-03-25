@@ -6,9 +6,16 @@ import classNames from 'classnames';
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
+  basePath?: string;
+  query?: Record<string, any>;
 }
 
-const Pagination: React.FC<PaginationProps> = ({ currentPage, totalPages }) => {
+const Pagination: React.FC<PaginationProps> = ({ 
+  currentPage, 
+  totalPages,
+  basePath,
+  query = {}
+}) => {
   const router = useRouter();
 
   // Generate page numbers to display
@@ -62,9 +69,17 @@ const Pagination: React.FC<PaginationProps> = ({ currentPage, totalPages }) => {
 
   // Create URL for a specific page
   const getPageUrl = (page: number) => {
+    // If basePath is provided, use it, otherwise use router.pathname
+    const pathname = basePath || router.pathname;
+    
+    // If query is provided, use it with the page parameter, otherwise use router.query
+    const queryParams = query 
+      ? { ...query, page } 
+      : { ...router.query, page };
+    
     return {
-      pathname: router.pathname,
-      query: { ...router.query, page },
+      pathname,
+      query: queryParams,
     };
   };
 
