@@ -2,6 +2,7 @@ import React from 'react';
 import { GetStaticPaths, GetStaticProps } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import { getListings, getListingById } from '@/utils/listingService';
 import { ListingRecord } from '@/utils/supabase';
@@ -71,6 +72,27 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   const [mainImageError, setMainImageError] = React.useState(false);
   const [additionalImageErrors, setAdditionalImageErrors] = React.useState<Record<number, boolean>>({});
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
+  const router = useRouter();
+  
+  // Get filter parameters from URL if they exist
+  const fromCategory = router.query.fromCategory as string | undefined;
+  const fromPage = router.query.fromPage as string | undefined;
+  
+  // Create back link that preserves category and page if they exist
+  const getBackToListingsLink = () => {
+    // Default to basic listings page
+    let backLink = '/listings';
+    
+    // If we have filter parameters in the URL, use them for the back link
+    if (fromCategory) {
+      backLink = `/listings?category=${encodeURIComponent(fromCategory)}`;
+      if (fromPage) {
+        backLink += `&page=${fromPage}`;
+      }
+    }
+    
+    return backLink;
+  };
   
   // Use the database category value instead of determining from text
   const category = listing.category || 'Uncategorised';
@@ -119,7 +141,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     <Layout title={`${listing.title} - Nifty Thrifty`}>
       <div className="container py-8">
         <div className="mb-4">
-          <Link href="/listings" className="text-primary-600 hover:underline flex items-center">
+          <Link href={getBackToListingsLink()} className="text-primary-600 hover:underline flex items-center">
             <i className="fa-solid fa-arrow-left mr-2"></i>
             Back to listings
           </Link>
@@ -246,7 +268,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
               
               <div className="space-y-3">
                 <a 
-                  href={`https://wa.me/?text=I'm interested in your listing: ${displayTitle}`} 
+                  href={`https://wa.me/${listing.sender?.replace(/\s+/g, '')}?text=I'm interested in your listing: ${displayTitle}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="btn btn-primary w-full flex justify-center items-center"
@@ -256,7 +278,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
                 </a>
                 
                 <Link 
-                  href={`/listings?category=${encodeURIComponent(category)}`}
+                  href={`/listings?category=${encodeURIComponent(category)}${fromPage ? `&page=1` : ''}`}
                   className="btn btn-secondary w-full flex justify-center items-center"
                 >
                   <i className="fa-solid fa-tag mr-2"></i>

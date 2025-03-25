@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { formatDate, getConditionColor } from '@/utils/utils';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
+import { useRouter } from 'next/router';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -69,6 +70,8 @@ interface ListingCardProps {
 const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const formattedDate = formatDate(listing.posted_on);
   const [imageError, setImageError] = React.useState(false);
+  const router = useRouter();
+  const { category, page } = router.query;
 
   // Use the title field directly - no fallback to ensure titles are always required
   const displayTitle = listing.title;
@@ -77,27 +80,45 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const groupName = formatGroupName(listing.group_name || 'Unknown Group');
 
   // Use the database category value instead of determining from text
-  const category = listing.category || 'Uncategorised';
+  const category_value = listing.category || 'Uncategorised';
 
   // Use the image from the listing
   const getImageSrc = () => {
     if (listing.images && listing.images.length > 0 && !listing.is_iso && !imageError) {
       return getFormattedImageUrl(listing.images[0]);
     }
-    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category || 'No Image')}`;
+    return `https://placehold.co/600x400/e2e8f0/1e293b?text=${encodeURIComponent(category_value || 'No Image')}`;
   };
 
   const imageSrc = getImageSrc();
 
+  // Create href with filter parameters preserved
+  const getDetailHref = () => {
+    const queryParams: { [key: string]: string } = {};
+    
+    // Add filter parameters if they exist
+    if (category) {
+      queryParams.fromCategory = Array.isArray(category) ? category[0] : category;
+    }
+    if (page) {
+      queryParams.fromPage = Array.isArray(page) ? page[0] : page;
+    }
+    
+    return {
+      pathname: `/listings/${listing.id}`,
+      query: queryParams
+    };
+  };
+
   return (
-    <Link href={`/listings/${listing.id}`} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
+    <Link href={getDetailHref()} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
       <div className="relative pt-[75%]">
         {listing.is_iso ? (
           // For ISO posts, display the category icon instead of an image
           <div className="absolute inset-0 flex items-center justify-center bg-blue-50">
             <i 
-              className={`${getCategoryIcon(category)} text-6xl`} 
-              style={{ color: getCategoryColor(category) }}
+              className={`${getCategoryIcon(category_value)} text-6xl`} 
+              style={{ color: getCategoryColor(category_value) }}
             ></i>
           </div>
         ) : (
@@ -153,10 +174,10 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         <div className="mt-auto pt-4 text-sm text-secondary-500 flex flex-col gap-1">
           <div className="flex items-center">
             <i 
-              className={`${getCategoryIcon(category)} mr-1`} 
-              style={{ color: getCategoryColor(category) }}
+              className={`${getCategoryIcon(category_value)} mr-1`} 
+              style={{ color: getCategoryColor(category_value) }}
             ></i>
-            <span>{category}</span>
+            <span>{category_value}</span>
           </div>
           
           {/* Display the WhatsApp group name */}
