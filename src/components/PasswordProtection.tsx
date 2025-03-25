@@ -18,8 +18,11 @@ export default function PasswordProtection({ children }: PasswordProtectionProps
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Get the site password from environment variable
+    const sitePassword = process.env.NEXT_PUBLIC_SITE_PASSWORD || 'niftythrifty';
+    
     // Simple password check - note this is not secure, but is just a basic deterrent
-    if (password === 'niftythrifty') {
+    if (password === sitePassword) {
       setIsAuthenticated(true);
       setError('');
       localStorage.setItem('nifty-thrifty-auth', 'true');
