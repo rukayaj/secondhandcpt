@@ -14,7 +14,9 @@ interface FilterSidebarProps {
   selectedDateRange?: string;
   onFilterChange?: (filterCriteria: FilterCriteria) => void;
   onClearFilter?: (filterType: keyof FilterCriteria) => void;
+  onClearAll?: () => void;
   isLoading?: boolean;
+  className?: string;
 }
 
 const FilterSidebar: React.FC<FilterSidebarProps> = ({
@@ -28,7 +30,9 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   selectedDateRange,
   onFilterChange,
   onClearFilter,
+  onClearAll,
   isLoading = false,
+  className = '',
 }) => {
   const router = useRouter();
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -116,7 +120,10 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   };
 
   const clearFilters = () => {
-    if (onFilterChange) {
+    if (onClearAll) {
+      // Use provided clear all handler
+      onClearAll();
+    } else if (onFilterChange) {
       // Client-side filtering
       onFilterChange({});
     } else {
@@ -319,92 +326,37 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
 
   return (
     <>
-      {/* Desktop sidebar */}
-      <div className="hidden md:block w-64 pr-8">
-        {isLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
-          </div>
-        ) : (
-          filterContent
-        )}
+      {/* Mobile filters toggle */}
+      <div className="md:hidden mb-4">
+        <button
+          onClick={() => setShowMobileFilters(!showMobileFilters)}
+          className="flex items-center justify-between w-full px-4 py-2 bg-secondary-50 rounded-md border border-secondary-200"
+        >
+          <span className="font-medium">Filters</span>
+          <span>
+            <i className={`fas fa-${showMobileFilters ? 'chevron-up' : 'chevron-down'}`}></i>
+          </span>
+        </button>
       </div>
 
-      {/* Mobile filter button and modal */}
-      <div className="md:hidden">
-        <button
-          onClick={() => setShowMobileFilters(true)}
-          className="w-full mb-4 py-2 bg-primary-500 text-white rounded-md flex items-center justify-center"
-          disabled={isLoading}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5 mr-2"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      {/* Filter sidebar */}
+      <div 
+        className={`${className} bg-white rounded-md p-4 border border-secondary-200 ${
+          showMobileFilters ? 'block' : 'hidden md:block'
+        }`}
+      >
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">Filters</h2>
+          <button 
+            onClick={clearFilters}
+            className="text-primary-600 hover:text-primary-800 text-sm font-medium"
+            disabled={isLoading}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
-            />
-          </svg>
-          Filters
-          {(selectedCategory || selectedLocation || selectedPriceRange || selectedDateRange) && (
-            <span className="ml-2 bg-white text-primary-500 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
-              {[
-                selectedCategory ? 1 : 0,
-                selectedLocation ? 1 : 0,
-                selectedPriceRange ? 1 : 0,
-                selectedDateRange ? 1 : 0
-              ].reduce((a, b) => a + b, 0)}
-            </span>
-          )}
-        </button>
+            Clear All
+          </button>
+        </div>
 
-        {showMobileFilters && (
-          <div className="fixed inset-0 z-50 bg-secondary-900 bg-opacity-75 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Filters</h2>
-                <button
-                  onClick={() => setShowMobileFilters(false)}
-                  className="text-secondary-500 hover:text-secondary-700"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-6 w-6"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
-              {isLoading ? (
-                <div className="flex justify-center items-center h-64">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
-                </div>
-              ) : (
-                filterContent
-              )}
-              <button
-                onClick={() => setShowMobileFilters(false)}
-                className="w-full mt-6 py-2 bg-primary-500 text-white rounded-md"
-              >
-                Apply Filters
-              </button>
-            </div>
-          </div>
-        )}
+        {filterContent}
       </div>
     </>
   );

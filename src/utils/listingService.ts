@@ -13,6 +13,7 @@ export interface ListingQueryOptions {
   offset?: number;
   orderBy?: string;
   ascending?: boolean;
+  fetchAll?: boolean;
 }
 
 /**
@@ -59,12 +60,19 @@ function addGroupNames(listings: ListingRecord[]): ListingRecord[] {
 export async function getListings(options: ListingQueryOptions = {}): Promise<ListingRecord[]> {
   try {
     const {
-      limit = 500,
+      limit = 100,
       offset = 0,
       orderBy = 'posted_on',
       ascending = false
     } = options;
     
+    // If fetchAll is specified, retrieve all listings with batched requests
+    if (options.fetchAll) {
+      console.log('Fetching all listings with batched pagination...');
+      return await fetchAllListings(orderBy, ascending);
+    }
+    
+    // Standard paginated request
     const { data, error } = await supabase
       .from(TABLES.LISTINGS)
       .select('*')
@@ -78,6 +86,70 @@ export async function getListings(options: ListingQueryOptions = {}): Promise<Li
     return addGroupNames(data || []);
   } catch (error) {
     console.error('Error in getListings:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch all listings using batched pagination
+ * This is used when we need all listings for filtering operations
+ */
+async function fetchAllListings(orderBy = 'posted_on', ascending = false): Promise<ListingRecord[]> {
+  try {
+    // First get count to determine how many batches we need
+    const { count, error: countError } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('*', { count: 'exact', head: true });
+    
+    if (countError) {
+      throw new Error(`Error getting listings count: ${countError.message}`);
+    }
+    
+    if (!count) {
+      return [];
+    }
+    
+    console.log(`Total listings in database: ${count}`);
+    
+    // Use a reasonable batch size
+    const batchSize = 100;
+    const batches = Math.ceil(count / batchSize);
+    
+    console.log(`Fetching listings in ${batches} batches of ${batchSize}`);
+    
+    let allListings: ListingRecord[] = [];
+    
+    // Fetch all batches in parallel for efficiency
+    const batchPromises = Array.from({ length: batches }, async (_, i) => {
+      const offset = i * batchSize;
+      const { data, error } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('*')
+        .order(orderBy, { ascending })
+        .range(offset, offset + batchSize - 1);
+      
+      if (error) {
+        console.error(`Error fetching batch ${i+1}/${batches}:`, error);
+        return [];
+      }
+      
+      console.log(`Fetched batch ${i+1}/${batches}: ${data?.length || 0} listings`);
+      return data || [];
+    });
+    
+    // Wait for all batches to complete
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Combine all batches
+    for (const batch of batchResults) {
+      allListings = [...allListings, ...batch];
+    }
+    
+    console.log(`Total listings fetched: ${allListings.length}`);
+    
+    return addGroupNames(allListings);
+  } catch (error) {
+    console.error('Error in fetchAllListings:', error);
     return [];
   }
 }
@@ -240,6 +312,12 @@ export async function getISOListings(options: ListingQueryOptions = {}): Promise
       ascending = false
     } = options;
     
+    // If fetchAll is specified, retrieve all ISO listings with batched requests
+    if (options.fetchAll) {
+      return await fetchAllISOListings(orderBy, ascending);
+    }
+    
+    // Standard paginated request
     const { data, error } = await supabase
       .from(TABLES.LISTINGS)
       .select('*')
@@ -255,6 +333,68 @@ export async function getISOListings(options: ListingQueryOptions = {}): Promise
     return addGroupNames(data || []);
   } catch (error) {
     console.error(`Error in getISOListings: ${error}`);
+    return [];
+  }
+}
+
+/**
+ * Fetch all ISO listings using batched pagination
+ */
+async function fetchAllISOListings(orderBy = 'posted_on', ascending = false): Promise<ListingRecord[]> {
+  try {
+    // First get count to determine how many batches we need
+    const { count, error: countError } = await supabase
+      .from(TABLES.LISTINGS)
+      .select('*', { count: 'exact', head: true })
+      .eq('is_iso', true);
+    
+    if (countError) {
+      throw new Error(`Error getting ISO listings count: ${countError.message}`);
+    }
+    
+    if (!count) {
+      return [];
+    }
+    
+    console.log(`Total ISO listings in database: ${count}`);
+    
+    // Use a reasonable batch size
+    const batchSize = 100;
+    const batches = Math.ceil(count / batchSize);
+    
+    console.log(`Fetching ISO listings in ${batches} batches of ${batchSize}`);
+    
+    let allListings: ListingRecord[] = [];
+    
+    // Fetch all batches in parallel
+    const batchPromises = Array.from({ length: batches }, async (_, i) => {
+      const offset = i * batchSize;
+      const { data, error } = await supabase
+        .from(TABLES.LISTINGS)
+        .select('*')
+        .eq('is_iso', true)
+        .order(orderBy, { ascending })
+        .range(offset, offset + batchSize - 1);
+      
+      if (error) {
+        console.error(`Error fetching ISO batch ${i+1}/${batches}:`, error);
+        return [];
+      }
+      
+      return data || [];
+    });
+    
+    // Wait for all batches to complete
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Combine all batches
+    for (const batch of batchResults) {
+      allListings = [...allListings, ...batch];
+    }
+    
+    return addGroupNames(allListings);
+  } catch (error) {
+    console.error('Error in fetchAllISOListings:', error);
     return [];
   }
 }
