@@ -19,6 +19,7 @@ import {
   getAllFilterOptions
 } from '@/utils/filterUtils';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { useAnalytics } from '@/utils/useAnalytics';
 
 interface ListingsPageProps {
   listings: ListingRecord[];
@@ -43,6 +44,7 @@ export default function ListingsPage({
 }: ListingsPageProps) {
   const router = useRouter();
   const { category, location, minPrice, maxPrice, dateRange, page = '1' } = router.query;
+  const { trackEvent } = useAnalytics();
   
   const currentPage = parseInt(Array.isArray(page) ? page[0] : page, 10);
   
@@ -113,6 +115,18 @@ export default function ListingsPage({
     
     setFilterCriteria(newFilterCriteria);
     
+    // Track search event with applied filters
+    trackEvent('listing_search', {
+      category: newFilterCriteria.category,
+      location: newFilterCriteria.location,
+      priceRange: newFilterCriteria.minPrice && newFilterCriteria.maxPrice 
+        ? `${newFilterCriteria.minPrice}-${newFilterCriteria.maxPrice}` 
+        : undefined,
+      dateRange: newFilterCriteria.dateRange,
+      page: currentPage,
+      resultsCount: undefined // Will be updated after fetch
+    });
+    
     // Fetch listings with the new filters and pagination
     fetchListings(newFilterCriteria);
   }, [category, location, minPrice, maxPrice, dateRange, currentPage]);
@@ -128,6 +142,18 @@ export default function ListingsPage({
       setListings(result.listings);
       setTotalListings(result.totalCount);
       setIsLoading(false);
+      
+      // Track the number of results after fetching
+      trackEvent('search_results', {
+        resultsCount: result.totalCount,
+        category: filters.category,
+        location: filters.location,
+        priceRange: filters.minPrice && filters.maxPrice 
+          ? `${filters.minPrice}-${filters.maxPrice}` 
+          : undefined,
+        dateRange: filters.dateRange,
+        page: filters.page
+      });
     } catch (error) {
       console.error('Error fetching listings:', error);
       setIsLoading(false);
@@ -149,6 +175,12 @@ export default function ListingsPage({
 
   // Handle filter changes
   const handleFilterChange = (newFilterCriteria: FilterCriteria) => {
+    // Track filter usage
+    trackEvent('filter_use', {
+      filterType: getChangedFilter(filterCriteria, newFilterCriteria),
+      newValue: getNewFilterValue(filterCriteria, newFilterCriteria)
+    });
+    
     // Update URL with new filter criteria
     const query: any = { ...router.query };
     
@@ -217,13 +249,17 @@ export default function ListingsPage({
   // Calculate total pages
   const totalPages = Math.ceil(totalListings / ITEMS_PER_PAGE);
 
+  // Track listing card clicks
+  const handleListingClick = (listingId: string, listingTitle: string) => {
+    trackEvent('listing_view', {
+      listingId,
+      listingTitle
+    });
+  };
+
   return (
-    <Layout title="All Listings - Nifty Thrifty">
-      <div className="container">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">All Listings</h1>
-        </div>
-        
+    <Layout title="Browse Listings | Nifty Thrifty" description="Browse second-hand baby items in Cape Town">
+      <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row">
           {/* Filters */}
           <FilterSidebar
@@ -242,23 +278,43 @@ export default function ListingsPage({
           />
           
           {/* Listing Grid */}
-          <div className="w-full md:w-3/4">
+          <div className="w-full md:w-3/4 md:pl-8">
             {isLoading ? (
               <div className="flex justify-center items-center h-64">
                 <LoadingSpinner />
               </div>
             ) : listings.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {listings.map(listing => (
-                    <ListingCard key={listing.id} listing={listing} />
+                    <Link 
+                      href={`/listings/${listing.id}`} 
+                      key={listing.id}
+                      onClick={() => handleListingClick(listing.id, listing.title)}
+                    >
+                      <ListingCard listing={listing} />
+                    </Link>
                   ))}
                 </div>
                 
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                />
+                <div className="mt-8">
+                  <Pagination 
+                    currentPage={currentPage} 
+                    totalPages={Math.ceil(totalListings / ITEMS_PER_PAGE)}
+                    onPageChange={(page) => {
+                      // Track pagination usage
+                      trackEvent('pagination_use', {
+                        fromPage: currentPage,
+                        toPage: page
+                      });
+                      
+                      router.push({
+                        pathname: router.pathname,
+                        query: { ...router.query, page: page.toString() }
+                      });
+                    }}
+                  />
+                </div>
               </>
             ) : (
               <div className="text-center p-8 bg-secondary-50 rounded-lg">
@@ -354,4 +410,26 @@ export async function getServerSideProps({ query }: { query: any }) {
       }
     };
   }
-} 
+}
+
+// Helper function to determine which filter changed
+const getChangedFilter = (oldFilters: FilterCriteria, newFilters: FilterCriteria): string => {
+  if (oldFilters.category !== newFilters.category) return 'category';
+  if (oldFilters.location !== newFilters.location) return 'location';
+  if (oldFilters.minPrice !== newFilters.minPrice || oldFilters.maxPrice !== newFilters.maxPrice) return 'price';
+  if (oldFilters.dateRange !== newFilters.dateRange) return 'date';
+  return 'unknown';
+};
+
+// Helper function to get the new filter value
+const getNewFilterValue = (oldFilters: FilterCriteria, newFilters: FilterCriteria): string => {
+  if (oldFilters.category !== newFilters.category) return newFilters.category || '';
+  if (oldFilters.location !== newFilters.location) return newFilters.location || '';
+  if (oldFilters.minPrice !== newFilters.minPrice || oldFilters.maxPrice !== newFilters.maxPrice) {
+    return newFilters.minPrice && newFilters.maxPrice 
+      ? `${newFilters.minPrice}-${newFilters.maxPrice}` 
+      : '';
+  }
+  if (oldFilters.dateRange !== newFilters.dateRange) return newFilters.dateRange?.toString() || '';
+  return '';
+}; 

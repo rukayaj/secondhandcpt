@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Header from './Header';
 import LoadingSpinner from './LoadingSpinner';
+import Analytics from './Analytics';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -93,6 +94,8 @@ const Layout: React.FC<LayoutProps> = ({
           </div>
         </footer>
       </div>
+      
+      <Analytics />
     </>
   );
 };

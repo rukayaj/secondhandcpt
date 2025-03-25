@@ -21,6 +21,12 @@ const nextConfig = {
       },
     ],
   },
+  // Enable Vercel Analytics
+  analytics: {
+    vercelAnalytics: {
+      enabled: true,
+    },
+  },
 }
 
 module.exports = nextConfig 

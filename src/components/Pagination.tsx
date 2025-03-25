@@ -8,13 +8,15 @@ interface PaginationProps {
   totalPages: number;
   basePath?: string;
   query?: Record<string, any>;
+  onPageChange?: (page: number) => void;
 }
 
 const Pagination: React.FC<PaginationProps> = ({ 
   currentPage, 
   totalPages,
   basePath,
-  query = {}
+  query = {},
+  onPageChange
 }) => {
   const router = useRouter();
 
@@ -83,6 +85,15 @@ const Pagination: React.FC<PaginationProps> = ({
     };
   };
 
+  // Handle page click with callback if provided
+  const handlePageClick = (page: number) => {
+    if (onPageChange) {
+      onPageChange(page);
+      return { pathname: '#', query: {} }; // Return dummy URL if using callback
+    }
+    return getPageUrl(page);
+  };
+
   // Don't render pagination if there's only one page
   if (totalPages <= 1) {
     return null;
@@ -93,7 +104,7 @@ const Pagination: React.FC<PaginationProps> = ({
       <nav className="flex items-center space-x-1">
         {/* Previous page button */}
         <Link
-          href={getPageUrl(Math.max(1, currentPage - 1))}
+          href={handlePageClick(Math.max(1, currentPage - 1))}
           className={classNames(
             'px-3 py-2 rounded-md',
             currentPage === 1
@@ -101,6 +112,14 @@ const Pagination: React.FC<PaginationProps> = ({
               : 'text-secondary-700 hover:bg-secondary-100'
           )}
           aria-disabled={currentPage === 1}
+          onClick={(e) => {
+            if (currentPage === 1) {
+              e.preventDefault();
+            } else if (onPageChange) {
+              e.preventDefault();
+              onPageChange(Math.max(1, currentPage - 1));
+            }
+          }}
         >
           <span className="sr-only">Previous</span>
           <svg
@@ -124,7 +143,7 @@ const Pagination: React.FC<PaginationProps> = ({
               <span className="px-3 py-2 text-secondary-500">...</span>
             ) : (
               <Link
-                href={getPageUrl(page as number)}
+                href={handlePageClick(page as number)}
                 className={classNames(
                   'px-3 py-2 rounded-md',
                   currentPage === page
@@ -132,6 +151,14 @@ const Pagination: React.FC<PaginationProps> = ({
                     : 'text-secondary-700 hover:bg-secondary-100'
                 )}
                 aria-current={currentPage === page ? 'page' : undefined}
+                onClick={(e) => {
+                  if (currentPage === page) {
+                    e.preventDefault();
+                  } else if (onPageChange) {
+                    e.preventDefault();
+                    onPageChange(page as number);
+                  }
+                }}
               >
                 {page}
               </Link>
@@ -141,7 +168,7 @@ const Pagination: React.FC<PaginationProps> = ({
 
         {/* Next page button */}
         <Link
-          href={getPageUrl(Math.min(totalPages, currentPage + 1))}
+          href={handlePageClick(Math.min(totalPages, currentPage + 1))}
           className={classNames(
             'px-3 py-2 rounded-md',
             currentPage === totalPages
@@ -149,6 +176,14 @@ const Pagination: React.FC<PaginationProps> = ({
               : 'text-secondary-700 hover:bg-secondary-100'
           )}
           aria-disabled={currentPage === totalPages}
+          onClick={(e) => {
+            if (currentPage === totalPages) {
+              e.preventDefault();
+            } else if (onPageChange) {
+              e.preventDefault();
+              onPageChange(Math.min(totalPages, currentPage + 1));
+            }
+          }}
         >
           <span className="sr-only">Next</span>
           <svg
