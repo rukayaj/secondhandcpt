@@ -125,7 +125,7 @@ export async function getServerSideProps({ query }: { query: any }) {
     // Get date range filter from query
     const dateRange = query.dateRange ? parseInt(query.dateRange) : undefined;
     
-    let allIsoPosts;
+    let listings: ListingRecord[] = [];
     
     // Apply date range filter if selected
     if (dateRange) {
@@ -133,23 +133,25 @@ export async function getServerSideProps({ query }: { query: any }) {
       const filters: FilterCriteria = {
         dateRange
       };
-      allIsoPosts = await filterISOPosts(filters);
+      // filterISOPosts returns an object with listings and totalCount
+      const result = await filterISOPosts(filters);
+      listings = result.listings;
     } else {
-      // Get all ISO posts
-      allIsoPosts = await getISOListings();
+      // Get all ISO posts - getISOListings returns an array directly
+      listings = await getISOListings();
     }
     
     // Sort by date (newest first)
-    allIsoPosts.sort((a: ListingRecord, b: ListingRecord) => 
+    listings.sort((a: ListingRecord, b: ListingRecord) => 
       new Date(b.posted_on).getTime() - new Date(a.posted_on).getTime()
     );
     
     // Get total count for pagination
-    const totalPosts = allIsoPosts.length;
+    const totalPosts = listings.length;
     
     // Paginate results
     const startIndex = (page - 1) * ITEMS_PER_PAGE;
-    const paginatedPosts = allIsoPosts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    const paginatedPosts = listings.slice(startIndex, startIndex + ITEMS_PER_PAGE);
     
     return {
       props: {
