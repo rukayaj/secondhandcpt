@@ -85,13 +85,17 @@ const Pagination: React.FC<PaginationProps> = ({
     };
   };
 
-  // Handle page click with callback if provided
-  const handlePageClick = (page: number) => {
+  // Handle page change
+  const handlePageChange = (page: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    
     if (onPageChange) {
+      // Use callback if provided
       onPageChange(page);
-      return { pathname: '#', query: {} }; // Return dummy URL if using callback
+    } else {
+      // Otherwise use router navigation
+      router.push(getPageUrl(page));
     }
-    return getPageUrl(page);
   };
 
   // Don't render pagination if there's only one page
@@ -103,8 +107,8 @@ const Pagination: React.FC<PaginationProps> = ({
     <div className="flex justify-center mt-8">
       <nav className="flex items-center space-x-1">
         {/* Previous page button */}
-        <Link
-          href={handlePageClick(Math.max(1, currentPage - 1))}
+        <a
+          href="#"
           className={classNames(
             'px-3 py-2 rounded-md',
             currentPage === 1
@@ -112,14 +116,7 @@ const Pagination: React.FC<PaginationProps> = ({
               : 'text-secondary-700 hover:bg-secondary-100'
           )}
           aria-disabled={currentPage === 1}
-          onClick={(e) => {
-            if (currentPage === 1) {
-              e.preventDefault();
-            } else if (onPageChange) {
-              e.preventDefault();
-              onPageChange(Math.max(1, currentPage - 1));
-            }
-          }}
+          onClick={(e) => currentPage > 1 && handlePageChange(currentPage - 1, e)}
         >
           <span className="sr-only">Previous</span>
           <svg
@@ -134,7 +131,7 @@ const Pagination: React.FC<PaginationProps> = ({
               clipRule="evenodd"
             />
           </svg>
-        </Link>
+        </a>
 
         {/* Page numbers */}
         {getPageNumbers().map((page, index) => (
@@ -142,8 +139,8 @@ const Pagination: React.FC<PaginationProps> = ({
             {page === '...' ? (
               <span className="px-3 py-2 text-secondary-500">...</span>
             ) : (
-              <Link
-                href={handlePageClick(page as number)}
+              <a
+                href="#"
                 className={classNames(
                   'px-3 py-2 rounded-md',
                   currentPage === page
@@ -151,24 +148,17 @@ const Pagination: React.FC<PaginationProps> = ({
                     : 'text-secondary-700 hover:bg-secondary-100'
                 )}
                 aria-current={currentPage === page ? 'page' : undefined}
-                onClick={(e) => {
-                  if (currentPage === page) {
-                    e.preventDefault();
-                  } else if (onPageChange) {
-                    e.preventDefault();
-                    onPageChange(page as number);
-                  }
-                }}
+                onClick={(e) => currentPage !== page && handlePageChange(page as number, e)}
               >
                 {page}
-              </Link>
+              </a>
             )}
           </React.Fragment>
         ))}
 
         {/* Next page button */}
-        <Link
-          href={handlePageClick(Math.min(totalPages, currentPage + 1))}
+        <a
+          href="#"
           className={classNames(
             'px-3 py-2 rounded-md',
             currentPage === totalPages
@@ -176,14 +166,7 @@ const Pagination: React.FC<PaginationProps> = ({
               : 'text-secondary-700 hover:bg-secondary-100'
           )}
           aria-disabled={currentPage === totalPages}
-          onClick={(e) => {
-            if (currentPage === totalPages) {
-              e.preventDefault();
-            } else if (onPageChange) {
-              e.preventDefault();
-              onPageChange(Math.min(totalPages, currentPage + 1));
-            }
-          }}
+          onClick={(e) => currentPage < totalPages && handlePageChange(currentPage + 1, e)}
         >
           <span className="sr-only">Next</span>
           <svg
@@ -198,7 +181,7 @@ const Pagination: React.FC<PaginationProps> = ({
               clipRule="evenodd"
             />
           </svg>
-        </Link>
+        </a>
       </nav>
     </div>
   );
