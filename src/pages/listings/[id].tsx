@@ -32,6 +32,47 @@ function getCategoryIcon(categoryName: string): string {
   return iconMap[categoryName] || 'fa-solid fa-box';
 }
 
+// Helper function to extract a clean phone number from a string
+function extractPhoneNumber(input: string | null | undefined): string {
+  if (!input) return '';
+  
+  // First, remove any whitespace
+  let cleaned = input.replace(/\s+/g, '');
+  
+  // If it's a URL, extract just the base path part
+  if (cleaned.includes('http') || cleaned.includes('wa.me')) {
+    // Extract the path part from a URL
+    const urlMatch = cleaned.match(/(?:https?:\/\/[^\/]+\/|wa\.me\/)([^?]+)/);
+    if (urlMatch && urlMatch[1]) {
+      cleaned = urlMatch[1];
+    }
+  }
+  
+  // Handle WhatsApp group ID format (number-timestamp@g.us)
+  if (cleaned.includes('@g.us') || cleaned.includes('-')) {
+    // Extract just the South African phone number (starts with 27)
+    const saNumberMatch = cleaned.match(/^(27\d+)(?:-|@)/);
+    if (saNumberMatch && saNumberMatch[1]) {
+      return saNumberMatch[1];
+    }
+  }
+  
+  // Remove any remaining WhatsApp-specific formatting
+  cleaned = cleaned.replace(/-\d+@g\.us$/g, '');
+  cleaned = cleaned.replace(/@g\.us$/g, '');
+  
+  // If it starts with a valid country code (like 27 for South Africa), use it
+  if (/^(27\d{9,10})/.test(cleaned)) {
+    const match = cleaned.match(/^(27\d{9,10})/);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  
+  // If it's just a number, return it as is
+  return cleaned;
+}
+
 // Helper function to get a color for each category
 function getCategoryColor(categoryName: string): string {
   const colorMap: Record<string, string> = {
@@ -268,7 +309,7 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
               
               <div className="space-y-3">
                 <a 
-                  href={`https://wa.me/${listing.sender?.replace(/\s+/g, '')}?text=I'm interested in your listing: ${displayTitle}`} 
+                  href={`https://wa.me/${extractPhoneNumber(listing.sender)}?text=I'm interested in your listing: ${displayTitle}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="btn btn-primary w-full flex justify-center items-center"
