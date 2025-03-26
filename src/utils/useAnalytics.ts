@@ -39,13 +39,12 @@ export function useAnalytics() {
     }
 
     try {
-      // Use Vercel's public tracking API
-      if (typeof window !== 'undefined' && window.va) {
-        window.va('event', {
-          name: eventName,
-          ...(properties || {}),
-        });
-      }
+      // Log events to console in production for now
+      // Note: Cloudflare Web Analytics doesn't support custom event tracking
+      // through their basic script. If you need custom event tracking,
+      // consider upgrading to Cloudflare Analytics Pro or adding another
+      // analytics solution
+      console.log(`[Analytics Event]`, eventName, properties);
     } catch (error) {
       console.error('Error tracking event:', error);
     }
@@ -54,9 +53,4 @@ export function useAnalytics() {
   return { trackEvent };
 }
 
-// Add type definitions for Vercel Analytics
-declare global {
-  interface Window {
-    va?: (event: 'event' | 'pageview' | 'beforeSend', properties?: unknown) => void;
-  }
-} 
+// No need for Vercel Analytics type definitions anymore 

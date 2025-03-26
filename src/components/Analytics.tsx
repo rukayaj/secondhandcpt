@@ -1,5 +1,4 @@
-import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
-import { SpeedInsights } from '@vercel/speed-insights/next';
+import Script from 'next/script';
 import React from 'react';
 
 interface AnalyticsProps {
@@ -10,7 +9,7 @@ interface AnalyticsProps {
 }
 
 /**
- * Analytics component that integrates Vercel Analytics and Speed Insights
+ * Analytics component that integrates Cloudflare Web Analytics
  * Add this to your root layout component
  */
 const Analytics: React.FC<AnalyticsProps> = ({ enabled = true }) => {
@@ -18,11 +17,16 @@ const Analytics: React.FC<AnalyticsProps> = ({ enabled = true }) => {
   const isProduction = process.env.NODE_ENV === 'production';
   const shouldEnable = enabled && isProduction;
 
+  if (!shouldEnable) {
+    return null;
+  }
+
   return (
-    <>
-      <VercelAnalytics debug={!isProduction} />
-      <SpeedInsights />
-    </>
+    <Script
+      defer
+      src='https://static.cloudflareinsights.com/beacon.min.js'
+      data-cf-beacon='{"token": "2611147d2cb541859a111c0d78594b87"}'
+    />
   );
 };
 
