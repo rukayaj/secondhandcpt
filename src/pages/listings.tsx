@@ -67,23 +67,56 @@ export default function ListingsPage({
   useEffect(() => {
     const updateFilterCounts = async () => {
       try {
-        const categories = await getCategoriesWithCounts(filterCriteria);
-        const locations = await getLocationsWithCounts(filterCriteria);
-        const priceRanges = await getPriceRangesWithCounts(filterCriteria);
-        const dateRanges = await getDateRangesWithCounts(filterCriteria);
+        setIsLoading(true);
         
-        setCategories(categories);
-        setLocations(locations);
-        setPriceRanges(priceRanges);
-        setDateRanges(dateRanges);
+        // Get all filter options with counts based on current filter criteria
+        const filterOptions = await getAllFilterOptions(filterCriteria);
+        
+        // Update all filter counts
+        setCategories(filterOptions.categories || []);
+        setLocations(filterOptions.locations || []);
+        setPriceRanges(filterOptions.priceRanges || []);
+        setDateRanges(filterOptions.dateRanges || []);
+        
+        setIsLoading(false);
       } catch (error) {
         console.error('Error updating filter counts:', error);
+        setIsLoading(false);
       }
     };
     
     updateFilterCounts();
   }, [filterCriteria]);
   
+  // Fetch listings when filter criteria change
+  const fetchListings = async (filters: FilterCriteria) => {
+    try {
+      setIsLoading(true);
+      
+      // Use the optimized filterListings function with pagination
+      const result = await filterListings(filters);
+      
+      setListings(result.listings);
+      setTotalListings(result.totalCount);
+      setIsLoading(false);
+      
+      // Track the number of results after fetching
+      trackEvent('search_results', {
+        resultsCount: result.totalCount,
+        category: filters.category,
+        location: filters.location,
+        priceRange: filters.minPrice && filters.maxPrice 
+          ? `${filters.minPrice}-${filters.maxPrice}` 
+          : undefined,
+        dateRange: filters.dateRange,
+        page: filters.page
+      });
+    } catch (error) {
+      console.error('Error fetching listings:', error);
+      setIsLoading(false);
+    }
+  };
+
   // Update filter criteria when URL query params change
   useEffect(() => {
     setIsLoading(true);
@@ -132,35 +165,6 @@ export default function ListingsPage({
     // Fetch listings with the new filters and pagination
     fetchListings(newFilterCriteria);
   }, [category, location, minPrice, maxPrice, dateRange, currentPage]);
-
-  // Fetch listings with filters and pagination
-  const fetchListings = async (filters: FilterCriteria) => {
-    try {
-      setIsLoading(true);
-      
-      // Use the optimized filterListings function with pagination
-      const result = await filterListings(filters);
-      
-      setListings(result.listings);
-      setTotalListings(result.totalCount);
-      setIsLoading(false);
-      
-      // Track the number of results after fetching
-      trackEvent('search_results', {
-        resultsCount: result.totalCount,
-        category: filters.category,
-        location: filters.location,
-        priceRange: filters.minPrice && filters.maxPrice 
-          ? `${filters.minPrice}-${filters.maxPrice}` 
-          : undefined,
-        dateRange: filters.dateRange,
-        page: filters.page
-      });
-    } catch (error) {
-      console.error('Error fetching listings:', error);
-      setIsLoading(false);
-    }
-  };
 
   // Convert price ranges to the format expected by FilterSidebar
   const formattedPriceRanges = priceRanges.map(range => ({

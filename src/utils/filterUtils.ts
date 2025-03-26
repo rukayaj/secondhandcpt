@@ -2,6 +2,7 @@ import { ListingRecord } from './supabase';
 import { getListings, getISOListings } from './listingService';
 import { supabase, TABLES } from './supabase';
 import { WHATSAPP_GROUPS } from './whatsappGroups';
+import { isRegion, getSuburbsForRegion, LOCATION_HIERARCHY, SUBURB_TO_REGION } from './locationHierarchy';
 
 
 /**
@@ -245,28 +246,54 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
         );
       }
       
-      filteredListings = filteredListings.filter(listing => {
-        // Make sure collection_areas is usable
-        if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
-          return false;
-        }
-
-        const locationToMatch = filters.location!.trim();
+      const locationToMatch = filters.location!.trim();
+      
+      // Check if the location is a region
+      if (isRegion(locationToMatch)) {
+        console.log(`Filtering by region: ${locationToMatch}`);
+        // Get all suburbs for this region
+        const suburbsForRegion = getSuburbsForRegion(locationToMatch);
+        console.log(`Suburbs in ${locationToMatch}:`, suburbsForRegion);
         
-        // Normalize collection areas for matching
-        const normalizedAreas = listing.collection_areas.map(area => 
-          typeof area === 'string' ? area.trim() : String(area)
-        );
-        
-        // For specific problem locations, add extra debugging
-        if (locationToMatch.toLowerCase() === "constantia" || 
-            locationToMatch.toLowerCase() === "durbanville") {
-          console.log(`Checking ${locationToMatch} against:`, normalizedAreas);
-        }
+        // Filter listings that match any suburb in this region
+        filteredListings = filteredListings.filter(listing => {
+          // Make sure collection_areas is usable
+          if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+            return false;
+          }
+          
+          const normalizedAreas = listing.collection_areas.map(area => 
+            typeof area === 'string' ? area.trim() : String(area)
+          );
+          
+          // Check if any collection area matches any suburb in the region
+          return normalizedAreas.some(area => 
+            suburbsForRegion.some(suburb => locationsMatch(area, suburb))
+          );
+        });
+      } else {
+        // Regular location filtering for specific suburbs
+        filteredListings = filteredListings.filter(listing => {
+          // Make sure collection_areas is usable
+          if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+            return false;
+          }
+          
+          // Normalize collection areas for matching
+          const normalizedAreas = listing.collection_areas.map(area => 
+            typeof area === 'string' ? area.trim() : String(area)
+          );
+          
+          // For specific problem locations, add extra debugging
+          if (locationToMatch.toLowerCase() === "constantia" || 
+              locationToMatch.toLowerCase() === "durbanville") {
+            console.log(`Checking ${locationToMatch} against:`, normalizedAreas);
+          }
 
-        // Use our new matching function that handles standardized locations
-        return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
-      });
+          // Use our new matching function that handles standardized locations
+          return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+        });
+      }
       
       // Debug: log the results of filtering
       console.log(`Found ${filteredListings.length} listings matching location "${filters.location}"`);
@@ -397,22 +424,46 @@ export async function filterISOPosts(filters: FilterCriteria = {}): Promise<{
   
     // Filter by location (can't be done in database query efficiently)
     if (filters.location) {
-      filteredPosts = filteredPosts.filter(post => {
-        // Make sure collection_areas is usable
-        if (!post.collection_areas || !Array.isArray(post.collection_areas)) {
-          return false;
-        }
+      const locationToMatch = filters.location!.trim();
+      
+      // Check if the location is a region
+      if (isRegion(locationToMatch)) {
+        // Get all suburbs for this region
+        const suburbsForRegion = getSuburbsForRegion(locationToMatch);
+        
+        // Filter posts that match any suburb in this region
+        filteredPosts = filteredPosts.filter(post => {
+          // Make sure collection_areas is usable
+          if (!post.collection_areas || !Array.isArray(post.collection_areas)) {
+            return false;
+          }
+          
+          const normalizedAreas = post.collection_areas.map(area => 
+            typeof area === 'string' ? area.trim() : String(area)
+          );
+          
+          // Check if any collection area matches any suburb in the region
+          return normalizedAreas.some(area => 
+            suburbsForRegion.some(suburb => locationsMatch(area, suburb))
+          );
+        });
+      } else {
+        // Regular suburb-level filtering
+        filteredPosts = filteredPosts.filter(post => {
+          // Make sure collection_areas is usable
+          if (!post.collection_areas || !Array.isArray(post.collection_areas)) {
+            return false;
+          }
 
-        const locationToMatch = filters.location!.trim();
-        
-        // Normalize collection areas for matching
-        const normalizedAreas = post.collection_areas.map(area => 
-          typeof area === 'string' ? area.trim() : String(area)
-        );
-        
-        // Use our new matching function that handles standardized locations
-        return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
-      });
+          // Normalize collection areas for matching
+          const normalizedAreas = post.collection_areas.map(area => 
+            typeof area === 'string' ? area.trim() : String(area)
+          );
+          
+          // Use our new matching function that handles standardized locations
+          return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+        });
+      }
     }
   
     return {
@@ -472,12 +523,36 @@ function getAllCategories(): Record<string, string> {
 /**
  * Get categories with their counts using database queries for accuracy
  */
-export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
+export async function getCategoriesWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
   try {
     // Get all defined categories
     const definedCategories = getAllCategories();
     const categoryNames = Object.keys(definedCategories);
     
+    // If we have pre-filtered listings (e.g., from location filter), count from those
+    if (preFilteredListings && preFilteredListings.length > 0) {
+      // Count categories in the pre-filtered listings
+      const categoryCounts = new Map<string, number>();
+      
+      // Count each category
+      preFilteredListings.forEach(listing => {
+        const category = listing.category;
+        if (category) {
+          categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+        }
+      });
+      
+      // Format and return category counts
+      return categoryNames
+        .filter(categoryName => categoryCounts.has(categoryName) && categoryCounts.get(categoryName)! > 0)
+        .map(categoryName => ({
+          name: categoryName,
+          count: categoryCounts.get(categoryName) || 0
+        }))
+        .sort((a, b) => b.count - a.count);
+    }
+    
+    // Otherwise use database queries as before
     // Create a copy of filters without the category
     const { category, ...otherFilters } = filters;
     
@@ -584,7 +659,7 @@ export async function getCategoriesWithCounts(filters: FilterCriteria = {}) {
  * Get locations with their counts using database-level filtering where possible
  * Note: We still need to post-process locations since they are stored as arrays in the database
  */
-export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
+export async function getLocationsWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
   try {
     // Create a copy of filters without the location
     const { location, ...otherFilters } = filters;
@@ -630,8 +705,8 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
     // Process listings to get locations (still need client-side processing)
     const listings = addGroupNames(data || []);
     
-    // Get all unique locations
-    const locationCounts = new Map<string, number>();
+    // Get all unique suburb locations
+    const suburbCounts = new Map<string, number>();
     
     // Function to normalize and process each location
     const processLocation = (area: string) => {
@@ -642,14 +717,14 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
       if (normalizedArea.length === 0) return;
       
       // Add the exact location
-      locationCounts.set(normalizedArea, (locationCounts.get(normalizedArea) || 0) + 1);
+      suburbCounts.set(normalizedArea, (suburbCounts.get(normalizedArea) || 0) + 1);
       
       // Also add individual parts from comma-separated locations
       if (normalizedArea.includes(',')) {
         normalizedArea.split(',').forEach(part => {
           const trimmedPart = part.trim();
           if (trimmedPart && trimmedPart.toLowerCase() !== 'cape town') {
-            locationCounts.set(trimmedPart, (locationCounts.get(trimmedPart) || 0) + 1);
+            suburbCounts.set(trimmedPart, (suburbCounts.get(trimmedPart) || 0) + 1);
           }
         });
       }
@@ -678,9 +753,52 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
       }
     }
     
-    return Array.from(locationCounts.entries())
+    // Calculate region counts based on suburb counts
+    const regionCounts = new Map<string, number>();
+    
+    // Add region counts
+    Object.entries(LOCATION_HIERARCHY).forEach(([region, suburbs]) => {
+      let count = 0;
+      // Count unique listings in this region by suburbs
+      const suburbsInRegion = new Set();
+      
+      suburbs.forEach(suburb => {
+        if (suburbCounts.has(suburb)) {
+          count += suburbCounts.get(suburb) || 0;
+          suburbsInRegion.add(suburb);
+        }
+      });
+      
+      // Only add regions that have at least one suburb with listings
+      if (suburbsInRegion.size > 0) {
+        regionCounts.set(region, count);
+      }
+    });
+    
+    // Combine suburb and region counts
+    const combinedCounts = new Map<string, number>();
+    // Add all suburb counts to combined counts
+    suburbCounts.forEach((count, name) => {
+      combinedCounts.set(name, count);
+    });
+    // Add all region counts to combined counts
+    regionCounts.forEach((count, name) => {
+      combinedCounts.set(name, count);
+    });
+    
+    return Array.from(combinedCounts.entries())
       .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+      .sort((a, b) => {
+        // Sort regions first, then by count (descending)
+        const aIsRegion = isRegion(a.name);
+        const bIsRegion = isRegion(b.name);
+        
+        if (aIsRegion && !bIsRegion) return -1;
+        if (!aIsRegion && bIsRegion) return 1;
+        
+        // If both are the same type, sort by count
+        return b.count - a.count;
+      });
   } catch (error) {
     console.error('Error in getLocationsWithCounts:', error);
     return [];
@@ -690,7 +808,7 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
 /**
  * Get price ranges with their counts using database-level counting
  */
-export async function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
+export async function getPriceRangesWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
   try {
     // Define price ranges
     const ranges = [
@@ -701,6 +819,21 @@ export async function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
       { range: 'R1000 - R2000', min: 1000, max: 2000 },
       { range: 'Over R2000', min: 2000, max: 100000 }
     ];
+    
+    // If we have pre-filtered listings, count from those
+    if (preFilteredListings && preFilteredListings.length > 0) {
+      // Calculate counts for each price range from the pre-filtered listings
+      return ranges.map(range => {
+        const count = preFilteredListings.filter(listing => {
+          const price = typeof listing.price === 'string' 
+            ? parseFloat(listing.price) 
+            : (listing.price || 0);
+          return price >= range.min && price <= range.max;
+        }).length;
+        
+        return { ...range, count };
+      });
+    }
     
     // Create a copy of filters without the price range
     const { minPrice, maxPrice, ...otherFilters } = filters;
@@ -755,7 +888,7 @@ export async function getPriceRangesWithCounts(filters: FilterCriteria = {}) {
 /**
  * Get date ranges with their counts using database-level counting
  */
-export async function getDateRangesWithCounts(filters: FilterCriteria = {}) {
+export async function getDateRangesWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
   try {
     // Define date ranges
     const ranges = [
@@ -766,6 +899,22 @@ export async function getDateRangesWithCounts(filters: FilterCriteria = {}) {
       { range: 'Last 3 months', days: 90 },
       { range: 'All time', days: 3650 }
     ];
+    
+    // If we have pre-filtered listings, count from those
+    if (preFilteredListings && preFilteredListings.length > 0) {
+      // Calculate counts for each date range from the pre-filtered listings
+      return ranges.map(range => {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - range.days);
+        
+        const count = preFilteredListings.filter(listing => {
+          const postedDate = new Date(listing.posted_on);
+          return postedDate >= cutoffDate;
+        }).length;
+        
+        return { ...range, count };
+      });
+    }
     
     // Create a copy of filters without the date range
     const { dateRange, ...otherFilters } = filters;
@@ -824,7 +973,7 @@ export async function getDateRangesWithCounts(filters: FilterCriteria = {}) {
 /**
  * Get conditions with their counts using database-level counting
  */
-export async function getConditionsWithCounts(filters: FilterCriteria = {}) {
+export async function getConditionsWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
   try {
     // Define common conditions
     const conditions = ['New', 'Like New', 'Good', 'Fair', 'Poor'];
@@ -889,7 +1038,7 @@ export async function getConditionsWithCounts(filters: FilterCriteria = {}) {
  * Get sizes with counts based on other filters
  * Note: Since sizes are stored in an array, we still need to use client-side filtering
  */
-export async function getSizesWithCounts(filters: FilterCriteria = {}) {
+export async function getSizesWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
   try {
     // Create a copy of filters without the sizes
     const { sizes, ...otherFilters } = filters;
@@ -977,15 +1126,88 @@ export async function getSizesWithCounts(filters: FilterCriteria = {}) {
  */
 export async function getAllFilterOptions(filters: FilterCriteria = {}) {
   try {
-    // 1. Get categories with counts
-    const categories = await getCategoriesWithCounts(filters);
+    // When location is selected, we need to pre-filter the dataset
+    let preFilteredListings: ListingRecord[] | null = null;
     
-    // 2. Get other filter options with counts
-    const locations = await getLocationsWithCounts(filters);
-    const priceRanges = await getPriceRangesWithCounts(filters);
-    const dateRanges = await getDateRangesWithCounts(filters);
-    const conditions = await getConditionsWithCounts(filters);
-    const sizes = await getSizesWithCounts(filters);
+    if (filters.location) {
+      // Get all listings matching all filters except those we want counts for
+      const { location, category, minPrice, maxPrice, dateRange, ...otherFilters } = filters;
+      
+      // Build query for pre-filtering
+      let query = supabase.from(TABLES.LISTINGS).select('*');
+      
+      // Apply common filters
+      if (otherFilters.includeISO !== true) {
+        query = query.eq('is_iso', false);
+      }
+      
+      if (otherFilters.condition) {
+        query = query.eq('condition', otherFilters.condition);
+      }
+      
+      // Execute query
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error pre-filtering for filter options:', error);
+      } else if (data) {
+        // Apply location filter in memory since it can't be done efficiently in the database
+        let listings = addGroupNames(data);
+        
+        // Apply location filter if specified
+        if (location) {
+          const locationToMatch = location.trim();
+          
+          // Check if the location is a region
+          if (isRegion(locationToMatch)) {
+            // Get all suburbs for this region
+            const suburbsForRegion = getSuburbsForRegion(locationToMatch);
+            
+            // Filter listings that match any suburb in this region
+            listings = listings.filter(listing => {
+              if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+                return false;
+              }
+              
+              const normalizedAreas = listing.collection_areas.map(area => 
+                typeof area === 'string' ? area.trim() : String(area)
+              );
+              
+              // Check if any collection area matches any suburb in the region
+              return normalizedAreas.some(area => 
+                suburbsForRegion.some(suburb => locationsMatch(area, suburb))
+              );
+            });
+          } else {
+            // Regular location filtering
+            listings = listings.filter(listing => {
+              if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+                return false;
+              }
+              
+              const normalizedAreas = listing.collection_areas.map(area => 
+                typeof area === 'string' ? area.trim() : String(area)
+              );
+              
+              // Use our new matching function that handles standardized locations
+              return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+            });
+          }
+        }
+        
+        preFilteredListings = listings;
+      }
+    }
+    
+    // 1. Get categories with counts (passing pre-filtered listings if we have them)
+    const categories = await getCategoriesWithCounts(filters, preFilteredListings);
+    
+    // 2. Get other filter options with counts (passing pre-filtered listings)
+    const locations = await getLocationsWithCounts(filters, preFilteredListings);
+    const priceRanges = await getPriceRangesWithCounts(filters, preFilteredListings);
+    const dateRanges = await getDateRangesWithCounts(filters, preFilteredListings);
+    const conditions = await getConditionsWithCounts(filters, preFilteredListings);
+    const sizes = await getSizesWithCounts(filters, preFilteredListings);
     
     return {
       categories,

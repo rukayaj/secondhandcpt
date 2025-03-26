@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import { FilterCriteria } from '@/utils/filterUtils';
 import LoadingSpinner from './LoadingSpinner';
+import { isRegion, isSuburb, LOCATION_HIERARCHY } from '@/utils/locationHierarchy';
 
 interface FilterSidebarProps {
   categories: { name: string; count: number }[];
@@ -181,28 +182,23 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
             </button>
           )}
         </div>
-        <div className="space-y-2">
+        <select
+          className="w-full p-2 border border-secondary-200 rounded-md"
+          value={selectedCategory || ''}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+          disabled={isLoading}
+        >
+          <option value="">All Categories</option>
           {categories.map((category) => (
-            <div key={category.name} className="flex items-center">
-              <input
-                type="radio"
-                id={`category-${category.name}`}
-                name="category"
-                className="mr-2"
-                checked={selectedCategory === category.name}
-                onChange={() => handleCategoryChange(category.name)}
-                disabled={isLoading || category.count === 0}
-              />
-              <label 
-                htmlFor={`category-${category.name}`} 
-                className={`flex-1 cursor-pointer ${category.count === 0 ? 'text-secondary-400' : ''} ${isLoading ? 'opacity-70' : ''}`}
-              >
-                {category.name}
-                <span className="ml-1 text-secondary-500 text-sm">({category.count})</span>
-              </label>
-            </div>
+            <option 
+              key={category.name} 
+              value={category.name}
+              disabled={category.count === 0}
+            >
+              {category.name} ({category.count})
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       <div>
@@ -298,17 +294,77 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
           value={selectedLocation || ''}
           onChange={(e) => handleLocationChange(e.target.value)}
           disabled={isLoading}
+          style={{ 
+            maxHeight: '300px',
+            overflow: 'auto' 
+          }}
         >
           <option value="">All Locations</option>
-          {locations.map((location) => (
-            <option 
-              key={location.name} 
-              value={location.name}
-              disabled={location.count === 0}
-            >
-              {location.name} ({location.count})
-            </option>
-          ))}
+          
+          {/* Display regions with their suburbs */}
+          {Object.entries(LOCATION_HIERARCHY).map(([region, suburbs]) => {
+            // Find region in locations data
+            const regionData = locations.find(loc => loc.name === region);
+            // Only show regions that have listings
+            if (regionData && regionData.count > 0) {
+              return (
+                <optgroup 
+                  key={region} 
+                  label={`${region} (${regionData.count})`}
+                  style={{ 
+                    fontWeight: 'bold',
+                    color: '#333' 
+                  }}
+                >
+                  {/* Show the region as an option */}
+                  <option 
+                    value={region}
+                    style={{
+                      fontWeight: 'bold',
+                      backgroundColor: '#f3f4f6'
+                    }}
+                  >
+                    All in {region} ({regionData.count})
+                  </option>
+                  
+                  {/* Show suburbs in this region */}
+                  {suburbs.map(suburb => {
+                    const suburbData = locations.find(loc => loc.name === suburb);
+                    const count = suburbData?.count || 0;
+                    // Only show suburbs with listings
+                    if (count > 0) {
+                      return (
+                        <option 
+                          key={suburb} 
+                          value={suburb}
+                          style={{ 
+                            paddingLeft: '1rem',
+                            textIndent: '1rem'
+                          }}
+                        >
+                          {suburb} ({count})
+                        </option>
+                      );
+                    }
+                    return null;
+                  })}
+                </optgroup>
+              );
+            }
+            return null;
+          })}
+          
+          {/* Display other locations not in any region */}
+          {locations
+            .filter(loc => !isRegion(loc.name) && !isSuburb(loc.name) && loc.count > 0)
+            .map(location => (
+              <option 
+                key={location.name} 
+                value={location.name}
+              >
+                {location.name} ({location.count})
+              </option>
+            ))}
         </select>
       </div>
 
