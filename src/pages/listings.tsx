@@ -98,7 +98,9 @@ export default function ListingsPage({
     }
     
     if (location) {
-      newFilterCriteria.location = Array.isArray(location) ? location[0] : location;
+      // Make sure to decode the location from the URL
+      const decodedLocation = decodeURIComponent(Array.isArray(location) ? location[0] : location);
+      newFilterCriteria.location = decodedLocation;
     }
     
     if (minPrice && maxPrice) {
@@ -361,7 +363,8 @@ export async function getServerSideProps({ query }: { query: any }) {
   }
   
   if (location) {
-    filterCriteria.location = location;
+    // Make sure to decode the location from the URL
+    filterCriteria.location = decodeURIComponent(location);
   }
   
   if (minPrice && maxPrice) {

@@ -70,7 +70,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
         pathname: router.pathname,
         query: {
           ...router.query,
-          location: location || undefined,
+          location: location ? encodeURIComponent(location) : undefined,
           page: 1,
         },
       });

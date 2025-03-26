@@ -21,6 +21,55 @@ export interface FilterCriteria {
 }
 
 /**
+ * Helper function to normalize location strings for comparison
+ */
+function normalizeLocationString(location: string): string {
+  if (!location) return '';
+  
+  return location
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')       // Normalize spaces
+    .replace(/[^a-z0-9 ]/gi, '') // Remove special characters
+    .replace(/\bst\b/gi, 'saint') // Common abbreviations
+    .replace(/\bda\b/gi, 'da')   // For "Marina da Gama"
+    .replace(/\btown\b/gi, '');  // Remove "town" suffix
+}
+
+/**
+ * Check if two locations match, accounting for variations
+ */
+function locationsMatch(locationA: string, locationB: string): boolean {
+  if (!locationA || !locationB) return false;
+  
+  // Direct match
+  if (locationA.toLowerCase().trim() === locationB.toLowerCase().trim()) {
+    return true;
+  }
+  
+  // Normalized match
+  const normalizedA = normalizeLocationString(locationA);
+  const normalizedB = normalizeLocationString(locationB);
+  
+  if (normalizedA === normalizedB) {
+    return true;
+  }
+  
+  // Check for presence in comma-separated list
+  if (locationA.includes(',')) {
+    const partsA = locationA.split(',').map(p => p.trim().toLowerCase());
+    return partsA.includes(locationB.toLowerCase().trim());
+  }
+  
+  if (locationB.includes(',')) {
+    const partsB = locationB.split(',').map(p => p.trim().toLowerCase());
+    return partsB.includes(locationA.toLowerCase().trim());
+  }
+  
+  return false;
+}
+
+/**
  * Function to add human-readable group names to listings
  */
 function addGroupNames(listings: ListingRecord[]): ListingRecord[] {
@@ -82,7 +131,7 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
       baseQueryParams.condition = filters.condition;
     }
   
-    // Get count of matching records
+    // Get count of matching records (for non-location filters only)
     let countQuery = supabase
       .from(TABLES.LISTINGS)
       .select('id', { count: 'exact', head: true });
@@ -150,30 +199,77 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
       dataQuery = dataQuery.gte('posted_on', cutoffDate.toISOString());
     }
     
-    // Apply pagination and ordering
-    dataQuery = dataQuery
-      .order('posted_on', { ascending: false })
-      .range(offset, offset + limit - 1);
-  
-    // Execute data query
-    const { data, error: dataError } = await dataQuery;
-  
-    if (dataError) {
-      console.error('Error filtering listings:', dataError);
-      return { listings: [], totalCount: 0 };
+    // For locations, we need to do client-side filtering, so fetch all records first (no pagination yet)
+    let allListings;
+    
+    // Only apply pagination if we don't need to filter by location
+    if (filters.location) {
+      dataQuery = dataQuery.order('posted_on', { ascending: false });
+      
+      const { data, error: dataError } = await dataQuery;
+      if (dataError) {
+        console.error('Error filtering listings:', dataError);
+        return { listings: [], totalCount: 0 };
+      }
+      
+      allListings = addGroupNames(data || []);
+    } else {
+      // No location filter, apply pagination on the server
+      dataQuery = dataQuery
+        .order('posted_on', { ascending: false })
+        .range(offset, offset + limit - 1);
+      
+      const { data, error: dataError } = await dataQuery;
+      if (dataError) {
+        console.error('Error filtering listings:', dataError);
+        return { listings: [], totalCount: 0 };
+      }
+      
+      allListings = addGroupNames(data || []);
     }
   
     // Apply post-processing filters that cannot be done at database level
-    let filteredListings = addGroupNames(data || []);
+    let filteredListings = allListings;
     
     // Filter by location (can't be done in database query efficiently)
     if (filters.location) {
-      filteredListings = filteredListings.filter(listing => 
-        listing.collection_areas && 
-        listing.collection_areas.some((area: string) => 
-          area.toLowerCase().includes(filters.location!.toLowerCase())
-        )
-      );
+      // Debug: log the location filter and the first few listings
+      console.log(`Filtering by location: "${filters.location}"`);
+      if (allListings.length > 0) {
+        const sampleListing = allListings[0];
+        console.log(`Sample listing collection_areas:`, 
+          typeof sampleListing.collection_areas, 
+          Array.isArray(sampleListing.collection_areas) ? 
+            sampleListing.collection_areas : 
+            String(sampleListing.collection_areas)
+        );
+      }
+      
+      filteredListings = filteredListings.filter(listing => {
+        // Make sure collection_areas is usable
+        if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+          return false;
+        }
+
+        const locationToMatch = filters.location!.trim();
+        
+        // Normalize collection areas for matching
+        const normalizedAreas = listing.collection_areas.map(area => 
+          typeof area === 'string' ? area.trim() : String(area)
+        );
+        
+        // For specific problem locations, add extra debugging
+        if (locationToMatch.toLowerCase() === "constantia" || 
+            locationToMatch.toLowerCase() === "durbanville") {
+          console.log(`Checking ${locationToMatch} against:`, normalizedAreas);
+        }
+
+        // Use our new matching function that handles standardized locations
+        return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+      });
+      
+      // Debug: log the results of filtering
+      console.log(`Found ${filteredListings.length} listings matching location "${filters.location}"`);
     }
   
     // Filter by sizes (can't be done in database query efficiently)
@@ -185,10 +281,19 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
         )
       );
     }
-  
+    
+    // Get actual total count after client-side filtering
+    const totalCount = filters.location ? filteredListings.length : (count || 0);
+    
+    // Apply pagination for location filter (client-side)
+    let paginatedListings = filteredListings;
+    if (filters.location) {
+      paginatedListings = filteredListings.slice(offset, offset + limit);
+    }
+    
     return {
-      listings: filteredListings,
-      totalCount: count || 0
+      listings: paginatedListings,
+      totalCount: totalCount
     };
   } catch (error) {
     console.error('Error in filterListings:', error);
@@ -292,12 +397,22 @@ export async function filterISOPosts(filters: FilterCriteria = {}): Promise<{
   
     // Filter by location (can't be done in database query efficiently)
     if (filters.location) {
-      filteredPosts = filteredPosts.filter(post => 
-        post.collection_areas && 
-        post.collection_areas.some((area: string) => 
-          area.toLowerCase().includes(filters.location!.toLowerCase())
-        )
-      );
+      filteredPosts = filteredPosts.filter(post => {
+        // Make sure collection_areas is usable
+        if (!post.collection_areas || !Array.isArray(post.collection_areas)) {
+          return false;
+        }
+
+        const locationToMatch = filters.location!.trim();
+        
+        // Normalize collection areas for matching
+        const normalizedAreas = post.collection_areas.map(area => 
+          typeof area === 'string' ? area.trim() : String(area)
+        );
+        
+        // Use our new matching function that handles standardized locations
+        return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+      });
     }
   
     return {
@@ -518,10 +633,47 @@ export async function getLocationsWithCounts(filters: FilterCriteria = {}) {
     // Get all unique locations
     const locationCounts = new Map<string, number>();
     
+    // Function to normalize and process each location
+    const processLocation = (area: string) => {
+      if (!area || typeof area !== 'string') return;
+      
+      // Trim and normalize the location
+      const normalizedArea = area.trim();
+      if (normalizedArea.length === 0) return;
+      
+      // Add the exact location
+      locationCounts.set(normalizedArea, (locationCounts.get(normalizedArea) || 0) + 1);
+      
+      // Also add individual parts from comma-separated locations
+      if (normalizedArea.includes(',')) {
+        normalizedArea.split(',').forEach(part => {
+          const trimmedPart = part.trim();
+          if (trimmedPart && trimmedPart.toLowerCase() !== 'cape town') {
+            locationCounts.set(trimmedPart, (locationCounts.get(trimmedPart) || 0) + 1);
+          }
+        });
+      }
+    };
+    
+    // Process all locations
     for (const listing of listings) {
       if (listing.collection_areas) {
-        for (const area of listing.collection_areas) {
-          locationCounts.set(area, (locationCounts.get(area) || 0) + 1);
+        // Handle both string and array formats
+        if (typeof listing.collection_areas === 'string') {
+          try {
+            // Try to parse JSON string
+            const parsed = JSON.parse(listing.collection_areas);
+            if (Array.isArray(parsed)) {
+              parsed.forEach(processLocation);
+            } else if (parsed) {
+              processLocation(String(parsed));
+            }
+          } catch (e) {
+            // If not valid JSON, treat as plain string
+            processLocation(listing.collection_areas);
+          }
+        } else if (Array.isArray(listing.collection_areas)) {
+          listing.collection_areas.forEach(area => processLocation(String(area)));
         }
       }
     }
