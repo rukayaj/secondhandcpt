@@ -170,114 +170,6 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
 
       <div>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-semibold">Categories</h3>
-          {selectedCategory && onClearFilter && (
-            <button 
-              onClick={() => onClearFilter('category')}
-              className="text-xs text-primary-600 hover:text-primary-800"
-              aria-label="Clear category filter"
-              disabled={isLoading}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <select
-          className="w-full p-2 border border-secondary-200 rounded-md"
-          value={selectedCategory || ''}
-          onChange={(e) => handleCategoryChange(e.target.value)}
-          disabled={isLoading}
-        >
-          <option value="">All Categories</option>
-          {categories.map((category) => (
-            <option 
-              key={category.name} 
-              value={category.name}
-              disabled={category.count === 0}
-            >
-              {category.name} ({category.count})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-semibold">Price Range</h3>
-          {selectedPriceRange && onClearFilter && (
-            <button 
-              onClick={() => onClearFilter('minPrice')}
-              className="text-xs text-primary-600 hover:text-primary-800"
-              aria-label="Clear price filter"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="space-y-2">
-          {priceRanges.map((range) => (
-            <div key={range.label} className="flex items-center">
-              <input
-                type="radio"
-                id={`price-${range.min}-${range.max}`}
-                name="price"
-                className="mr-2"
-                checked={
-                  selectedPriceRange?.min === range.min &&
-                  selectedPriceRange?.max === range.max
-                }
-                onChange={() => handlePriceRangeChange(range.min, range.max)}
-                disabled={isLoading || range.label.includes('(0)')}
-              />
-              <label 
-                htmlFor={`price-${range.min}-${range.max}`} 
-                className={`cursor-pointer ${range.label.includes('(0)') ? 'text-secondary-400' : ''}`}
-              >
-                {range.label}
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-semibold">Date Listed</h3>
-          {selectedDateRange && onClearFilter && (
-            <button 
-              onClick={() => onClearFilter('dateRange')}
-              className="text-xs text-primary-600 hover:text-primary-800"
-              aria-label="Clear date filter"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="space-y-2">
-          {dateRanges.map((range) => (
-            <div key={range.value} className="flex items-center">
-              <input
-                type="radio"
-                id={`date-${range.value}`}
-                name="date"
-                className="mr-2"
-                checked={selectedDateRange === range.value}
-                onChange={() => handleDateRangeChange(range.value)}
-                disabled={isLoading || range.label.includes('(0)')}
-              />
-              <label 
-                htmlFor={`date-${range.value}`} 
-                className={`cursor-pointer ${range.label.includes('(0)') ? 'text-secondary-400' : ''}`}
-              >
-                {range.label}
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex justify-between items-center mb-3">
           <h3 className="text-lg font-semibold">Location</h3>
           {selectedLocation && onClearFilter && (
             <button 
@@ -365,6 +257,110 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
                 {location.name} ({location.count})
               </option>
             ))}
+        </select>
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-semibold">Categories</h3>
+          {selectedCategory && onClearFilter && (
+            <button 
+              onClick={() => onClearFilter('category')}
+              className="text-xs text-primary-600 hover:text-primary-800"
+              aria-label="Clear category filter"
+              disabled={isLoading}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <select
+          className="w-full p-2 border border-secondary-200 rounded-md"
+          value={selectedCategory || ''}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+          disabled={isLoading}
+        >
+          <option value="">All Categories</option>
+          {categories.map((category) => (
+            <option 
+              key={category.name} 
+              value={category.name}
+              disabled={category.count === 0}
+            >
+              {category.name} ({category.count})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-semibold">Price Range</h3>
+          {selectedPriceRange && onClearFilter && (
+            <button 
+              onClick={() => onClearFilter('minPrice')}
+              className="text-xs text-primary-600 hover:text-primary-800"
+              aria-label="Clear price filter"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="space-y-2">
+          {priceRanges.map((range) => (
+            <div key={range.label} className="flex items-center">
+              <input
+                type="radio"
+                id={`price-${range.min}-${range.max}`}
+                name="price"
+                className="mr-2"
+                checked={
+                  selectedPriceRange?.min === range.min &&
+                  selectedPriceRange?.max === range.max
+                }
+                onChange={() => handlePriceRangeChange(range.min, range.max)}
+                disabled={isLoading || range.label.includes('(0)')}
+              />
+              <label 
+                htmlFor={`price-${range.min}-${range.max}`} 
+                className={`cursor-pointer ${range.label.includes('(0)') ? 'text-secondary-400' : ''}`}
+              >
+                {range.label}
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-semibold">Date Listed</h3>
+          {selectedDateRange && onClearFilter && (
+            <button 
+              onClick={() => onClearFilter('dateRange')}
+              className="text-xs text-primary-600 hover:text-primary-800"
+              aria-label="Clear date filter"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <select
+          className="w-full p-2 border border-secondary-200 rounded-md"
+          value={selectedDateRange || ''}
+          onChange={(e) => handleDateRangeChange(e.target.value)}
+          disabled={isLoading}
+        >
+          <option value="">Any Time</option>
+          {dateRanges.map((range) => (
+            <option 
+              key={range.value} 
+              value={range.value}
+              disabled={range.label.includes('(0)')}
+            >
+              {range.label}
+            </option>
+          ))}
         </select>
       </div>
 
