@@ -20,6 +20,7 @@ import {
 } from '@/utils/filterUtils';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useAnalytics } from '@/utils/useAnalytics';
+import { GetServerSidePropsContext } from 'next';
 
 interface ListingsPageProps {
   listings: ListingRecord[];
@@ -27,6 +28,7 @@ interface ListingsPageProps {
   locations: { name: string; count: number }[];
   priceRanges: { range: string; min: number; max: number; count: number }[];
   dateRanges: { range: string; days: number; count: number }[];
+  whatsappGroups?: { id: string; name: string; count: number }[];
   totalListings: number;
   initialFilterCriteria: FilterCriteria; // Initial filter criteria
 }
@@ -43,7 +45,7 @@ export default function ListingsPage({
   initialFilterCriteria
 }: ListingsPageProps) {
   const router = useRouter();
-  const { category, location, minPrice, maxPrice, dateRange, page = '1' } = router.query;
+  const { category, location, minPrice, maxPrice, dateRange, whatsappGroup, page = '1' } = router.query;
   const { trackEvent } = useAnalytics();
   
   const currentPage = parseInt(Array.isArray(page) ? page[0] : page, 10);
@@ -55,6 +57,7 @@ export default function ListingsPage({
   const [locations, setLocations] = useState(initialLocations);
   const [priceRanges, setPriceRanges] = useState(initialPriceRanges);
   const [dateRanges, setDateRanges] = useState(initialDateRanges);
+  const [whatsappGroups, setWhatsappGroups] = useState<{ id: string; name: string; count: number }[]>([]);
   const [totalListings, setTotalListings] = useState(initialTotalListings);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -77,6 +80,7 @@ export default function ListingsPage({
         setLocations(filterOptions.locations || []);
         setPriceRanges(filterOptions.priceRanges || []);
         setDateRanges(filterOptions.dateRanges || []);
+        setWhatsappGroups(filterOptions.whatsappGroups || []);
         
         setIsLoading(false);
       } catch (error) {
@@ -148,6 +152,10 @@ export default function ListingsPage({
       }
     }
     
+    if (whatsappGroup) {
+      newFilterCriteria.whatsappGroup = Array.isArray(whatsappGroup) ? whatsappGroup[0] : whatsappGroup;
+    }
+    
     setFilterCriteria(newFilterCriteria);
     
     // Track search event with applied filters
@@ -158,13 +166,14 @@ export default function ListingsPage({
         ? `${newFilterCriteria.minPrice}-${newFilterCriteria.maxPrice}` 
         : undefined,
       dateRange: newFilterCriteria.dateRange,
+      whatsappGroup: newFilterCriteria.whatsappGroup,
       page: currentPage,
       resultsCount: undefined // Will be updated after fetch
     });
     
     // Fetch listings with the new filters and pagination
     fetchListings(newFilterCriteria);
-  }, [category, location, minPrice, maxPrice, dateRange, currentPage]);
+  }, [category, location, minPrice, maxPrice, dateRange, whatsappGroup, currentPage]);
 
   // Convert price ranges to the format expected by FilterSidebar
   const formattedPriceRanges = priceRanges.map(range => ({
@@ -220,6 +229,13 @@ export default function ListingsPage({
       delete query.dateRange;
     }
     
+    // Update whatsapp group
+    if (newFilterCriteria.whatsappGroup) {
+      query.whatsappGroup = newFilterCriteria.whatsappGroup;
+    } else {
+      delete query.whatsappGroup;
+    }
+    
     // Reset to page 1 when filters change
     query.page = '1';
     
@@ -230,17 +246,41 @@ export default function ListingsPage({
     }, undefined, { shallow: true });
   };
 
-  // Handle clearing a specific filter
+  // Handle clearing one filter
   const handleClearFilter = (filterType: keyof FilterCriteria) => {
     const newFilterCriteria = { ...filterCriteria };
     
-    if (filterType === 'minPrice' || filterType === 'maxPrice') {
-      // Clear both min and max price together
-      delete newFilterCriteria.minPrice;
-      delete newFilterCriteria.maxPrice;
-    } else {
-      delete newFilterCriteria[filterType];
+    // Track filter clearing
+    trackEvent('filter_use', {
+      filterType,
+      filterValue: getFilterValue(filterCriteria, filterType),
+      action: 'clear'
+    });
+    
+    // Remove the specified filter
+    delete newFilterCriteria[filterType];
+    
+    // Update URL query params
+    const query = { ...router.query };
+    
+    // Handle based on filter type
+    if (filterType === 'category') {
+      delete query.category;
+    } else if (filterType === 'location') {
+      delete query.location;
+    } else if (filterType === 'minPrice' || filterType === 'maxPrice') {
+      delete query.minPrice;
+      delete query.maxPrice;
+    } else if (filterType === 'dateRange') {
+      delete query.dateRange;
+    } else if (filterType === 'whatsappGroup') {
+      delete query.whatsappGroup;
     }
+    
+    router.push({
+      pathname: router.pathname,
+      query
+    }, undefined, { shallow: true });
     
     handleFilterChange(newFilterCriteria);
   };
@@ -273,10 +313,12 @@ export default function ListingsPage({
             locations={locations}
             priceRanges={formattedPriceRanges}
             dateRanges={formattedDateRanges}
+            whatsappGroups={whatsappGroups}
             selectedCategory={filterCriteria.category}
             selectedLocation={filterCriteria.location}
             selectedPriceRange={selectedPriceRange}
             selectedDateRange={filterCriteria.dateRange?.toString()}
+            selectedWhatsappGroup={filterCriteria.whatsappGroup}
             onFilterChange={handleFilterChange}
             onClearFilter={handleClearFilter}
             onClearAll={clearFilters}
@@ -343,7 +385,7 @@ export default function ListingsPage({
   );
 }
 
-export async function getServerSideProps({ query }: { query: any }) {
+export async function getServerSideProps({ query }: GetServerSidePropsContext) {
   // Parse query parameters
   const {
     category,
@@ -351,38 +393,48 @@ export async function getServerSideProps({ query }: { query: any }) {
     minPrice,
     maxPrice,
     dateRange,
+    whatsappGroup,
     page = '1'
   } = query;
-  
-  const currentPage = parseInt(page, 10);
-  
-  // Build filter criteria
+
+  // Build filter criteria object for server-side filtering
   const filterCriteria: FilterCriteria = {
-    page: currentPage,
+    page: parseInt(Array.isArray(page) ? page[0] : page, 10),
     limit: ITEMS_PER_PAGE
   };
-  
+
+  // Add category filter if present
   if (category) {
-    filterCriteria.category = category;
+    filterCriteria.category = Array.isArray(category) ? category[0] : category;
   }
-  
+
+  // Add location filter if present
   if (location) {
     // Make sure to decode the location from the URL
-    filterCriteria.location = decodeURIComponent(location);
+    const locationStr = Array.isArray(location) ? location[0] : location;
+    filterCriteria.location = decodeURIComponent(locationStr);
   }
-  
+
+  // Add price range filters if present
   if (minPrice && maxPrice) {
-    filterCriteria.minPrice = parseInt(minPrice, 10);
-    filterCriteria.maxPrice = parseInt(maxPrice, 10);
+    const minPriceStr = Array.isArray(minPrice) ? minPrice[0] : minPrice;
+    const maxPriceStr = Array.isArray(maxPrice) ? maxPrice[0] : maxPrice;
+    
+    filterCriteria.minPrice = parseInt(minPriceStr, 10);
+    filterCriteria.maxPrice = parseInt(maxPriceStr, 10);
   }
-  
+
+  // Add date range filter if present
   if (dateRange) {
-    const days = parseInt(dateRange, 10);
-    if (!isNaN(days)) {
-      filterCriteria.dateRange = days;
-    }
+    const dateRangeStr = Array.isArray(dateRange) ? dateRange[0] : dateRange;
+    filterCriteria.dateRange = parseInt(dateRangeStr, 10);
   }
   
+  // Add WhatsApp group filter if present
+  if (whatsappGroup) {
+    filterCriteria.whatsappGroup = Array.isArray(whatsappGroup) ? whatsappGroup[0] : whatsappGroup;
+  }
+
   try {
     // Get listings with filters and pagination
     const result = await filterListings(filterCriteria);
@@ -397,6 +449,7 @@ export async function getServerSideProps({ query }: { query: any }) {
         locations: filterOptions.locations || [],
         priceRanges: filterOptions.priceRanges || [],
         dateRanges: filterOptions.dateRanges || [],
+        whatsappGroups: filterOptions.whatsappGroups || [],
         totalListings: result.totalCount,
         initialFilterCriteria: filterCriteria
       }
@@ -412,6 +465,7 @@ export async function getServerSideProps({ query }: { query: any }) {
         locations: [],
         priceRanges: [],
         dateRanges: [],
+        whatsappGroups: [],
         totalListings: 0,
         initialFilterCriteria: filterCriteria
       }
@@ -425,6 +479,7 @@ const getChangedFilter = (oldFilters: FilterCriteria, newFilters: FilterCriteria
   if (oldFilters.location !== newFilters.location) return 'location';
   if (oldFilters.minPrice !== newFilters.minPrice || oldFilters.maxPrice !== newFilters.maxPrice) return 'price';
   if (oldFilters.dateRange !== newFilters.dateRange) return 'date';
+  if (oldFilters.whatsappGroup !== newFilters.whatsappGroup) return 'whatsappGroup';
   return 'unknown';
 };
 
@@ -438,5 +493,20 @@ const getNewFilterValue = (oldFilters: FilterCriteria, newFilters: FilterCriteri
       : '';
   }
   if (oldFilters.dateRange !== newFilters.dateRange) return newFilters.dateRange?.toString() || '';
+  if (oldFilters.whatsappGroup !== newFilters.whatsappGroup) return newFilters.whatsappGroup || '';
+  return '';
+};
+
+// Helper function to get the filter value
+const getFilterValue = (filters: FilterCriteria, filterType: keyof FilterCriteria): string => {
+  if (filterType === 'category') return filters.category || '';
+  if (filterType === 'location') return filters.location || '';
+  if (filterType === 'minPrice' || filterType === 'maxPrice') {
+    return filters.minPrice && filters.maxPrice 
+      ? `${filters.minPrice}-${filters.maxPrice}` 
+      : '';
+  }
+  if (filterType === 'dateRange') return filters.dateRange?.toString() || '';
+  if (filterType === 'whatsappGroup') return filters.whatsappGroup || '';
   return '';
 }; 

@@ -19,6 +19,7 @@ export interface FilterCriteria {
   includeISO?: boolean; // New flag to control inclusion of ISO posts
   page?: number;       // Page number for pagination
   limit?: number;      // Items per page
+  whatsappGroup?: string; // WhatsApp group identifier
 }
 
 /**
@@ -132,6 +133,11 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
       baseQueryParams.condition = filters.condition;
     }
   
+    // Filter by WhatsApp group
+    if (filters.whatsappGroup) {
+      baseQueryParams.whatsapp_group = filters.whatsappGroup;
+    }
+  
     // Get count of matching records (for non-location filters only)
     let countQuery = supabase
       .from(TABLES.LISTINGS)
@@ -153,6 +159,11 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
     
     if (filters.maxPrice !== undefined) {
       countQuery = countQuery.lte('price', filters.maxPrice);
+    }
+    
+    // Apply WhatsApp group filter
+    if (filters.whatsappGroup) {
+      countQuery = countQuery.eq('whatsapp_group', filters.whatsappGroup);
     }
     
     // Apply date range filter
@@ -191,6 +202,11 @@ export async function filterListings(filters: FilterCriteria = {}): Promise<{
     
     if (filters.maxPrice !== undefined) {
       dataQuery = dataQuery.lte('price', filters.maxPrice);
+    }
+    
+    // Apply WhatsApp group filter
+    if (filters.whatsappGroup) {
+      dataQuery = dataQuery.eq('whatsapp_group', filters.whatsappGroup);
     }
     
     // Apply date range filter
@@ -1122,110 +1138,287 @@ export async function getSizesWithCounts(filters: FilterCriteria = {}, preFilter
 }
 
 /**
+ * Get all WhatsApp groups with counts for the current filter criteria
+ */
+export async function getWhatsAppGroupsWithCounts(filters: FilterCriteria = {}, preFilteredListings: ListingRecord[] | null = null) {
+  try {
+    // Create a copy of filters without the whatsappGroup property
+    const filterWithoutGroup = {...filters};
+    delete filterWithoutGroup.whatsappGroup;
+    
+    // If we have pre-filtered listings (especially useful for location filter), use those directly
+    let listings: ListingRecord[];
+    
+    if (preFilteredListings) {
+      // Use the pre-filtered listings that already have other filters applied
+      // This is especially important for location filtering which is done in memory
+      listings = preFilteredListings;
+    } else {
+      // Otherwise, build a query to get all listings matching other filters without pagination
+      let query = supabase.from(TABLES.LISTINGS).select('*');
+      
+      // Apply all other database-level filters
+      if (filterWithoutGroup.category) {
+        query = query.ilike('category', filterWithoutGroup.category);
+      }
+      
+      if (filterWithoutGroup.includeISO !== true) {
+        query = query.eq('is_iso', false);
+      }
+      
+      if (filterWithoutGroup.condition) {
+        query = query.eq('condition', filterWithoutGroup.condition);
+      }
+      
+      if (filterWithoutGroup.minPrice !== undefined) {
+        query = query.gte('price', filterWithoutGroup.minPrice);
+      }
+      
+      if (filterWithoutGroup.maxPrice !== undefined) {
+        query = query.lte('price', filterWithoutGroup.maxPrice);
+      }
+      
+      if (filterWithoutGroup.dateRange) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - filterWithoutGroup.dateRange);
+        query = query.gte('posted_on', cutoffDate.toISOString());
+      }
+      
+      // Execute query to get all matching listings (no pagination)
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error fetching listings for WhatsApp group counts:', error);
+        return [];
+      }
+      
+      listings = addGroupNames(data || []);
+      
+      // If location filter is present, apply it in memory
+      if (filterWithoutGroup.location) {
+        const locationToMatch = filterWithoutGroup.location.trim();
+        
+        // Check if the location is a region
+        if (isRegion(locationToMatch)) {
+          // Get all suburbs for this region
+          const suburbsForRegion = getSuburbsForRegion(locationToMatch);
+          
+          // Filter listings that match any suburb in this region
+          listings = listings.filter(listing => {
+            if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+              return false;
+            }
+            
+            const normalizedAreas = listing.collection_areas.map(area => 
+              typeof area === 'string' ? area.trim() : String(area)
+            );
+            
+            // Check if any collection area matches any suburb in the region
+            return normalizedAreas.some(area => 
+              suburbsForRegion.some(suburb => locationsMatch(area, suburb))
+            );
+          });
+        } else {
+          // Regular location filtering
+          listings = listings.filter(listing => {
+            if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+              return false;
+            }
+            
+            const normalizedAreas = listing.collection_areas.map(area => 
+              typeof area === 'string' ? area.trim() : String(area)
+            );
+            
+            // Use matching function that handles standardized locations
+            return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+          });
+        }
+      }
+    }
+    
+    // Count listings by WhatsApp group
+    const groupCounts: Record<string, number> = {};
+    
+    // Initialize all groups with 0 count
+    Object.keys(WHATSAPP_GROUPS).forEach(groupId => {
+      groupCounts[groupId] = 0;
+    });
+    
+    // Count listings by group
+    listings.forEach(listing => {
+      if (listing.whatsapp_group && WHATSAPP_GROUPS[listing.whatsapp_group]) {
+        groupCounts[listing.whatsapp_group] = (groupCounts[listing.whatsapp_group] || 0) + 1;
+      }
+    });
+    
+    // Format results with group names
+    const result = Object.entries(groupCounts)
+      .map(([groupId, count]) => ({
+        id: groupId,
+        name: WHATSAPP_GROUPS[groupId] || 'Unknown Group',
+        count
+      }))
+      .sort((a, b) => b.count - a.count); // Sort by count, descending
+    
+    return result;
+  } catch (error) {
+    console.error('Error getting WhatsApp groups with counts:', error);
+    return [];
+  }
+}
+
+/**
+ * Helper function to get pre-filtered listings for optimizing filter options
+ */
+async function getPreFilteredListings(filters: FilterCriteria): Promise<ListingRecord[] | null> {
+  // When location or whatsappGroup is selected, we need to pre-filter the dataset
+  if (filters.location || filters.whatsappGroup) {
+    // Copy of all filters except the ones we want counts for
+    const { location, category, minPrice, maxPrice, dateRange, whatsappGroup, ...otherFilters } = filters;
+    
+    // Build query for pre-filtering
+    let query = supabase.from(TABLES.LISTINGS).select('*');
+    
+    // Apply common filters at the database level
+    if (otherFilters.includeISO !== true) {
+      query = query.eq('is_iso', false);
+    }
+    
+    if (otherFilters.condition) {
+      query = query.eq('condition', otherFilters.condition);
+    }
+    
+    if (category) {
+      query = query.ilike('category', category);
+    }
+    
+    if (minPrice !== undefined) {
+      query = query.gte('price', minPrice);
+    }
+    
+    if (maxPrice !== undefined) {
+      query = query.lte('price', maxPrice);
+    }
+    
+    if (dateRange) {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - dateRange);
+      query = query.gte('posted_on', cutoffDate.toISOString());
+    }
+    
+    if (whatsappGroup) {
+      query = query.eq('whatsapp_group', whatsappGroup);
+    }
+    
+    // Execute query
+    const { data, error } = await query;
+    
+    if (error) {
+      console.error('Error pre-filtering for filter options:', error);
+      return null;
+    } 
+    
+    if (data) {
+      // Apply location filter in memory since it can't be done efficiently in the database
+      let listings = addGroupNames(data);
+      
+      // Apply location filter if specified
+      if (location) {
+        const locationToMatch = location.trim();
+        
+        // Check if the location is a region
+        if (isRegion(locationToMatch)) {
+          // Get all suburbs for this region
+          const suburbsForRegion = getSuburbsForRegion(locationToMatch);
+          
+          // Filter listings that match any suburb in this region
+          listings = listings.filter(listing => {
+            if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+              return false;
+            }
+            
+            const normalizedAreas = listing.collection_areas.map(area => 
+              typeof area === 'string' ? area.trim() : String(area)
+            );
+            
+            // Check if any collection area matches any suburb in the region
+            return normalizedAreas.some(area => 
+              suburbsForRegion.some(suburb => locationsMatch(area, suburb))
+            );
+          });
+        } else {
+          // Regular location filtering
+          listings = listings.filter(listing => {
+            if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
+              return false;
+            }
+            
+            const normalizedAreas = listing.collection_areas.map(area => 
+              typeof area === 'string' ? area.trim() : String(area)
+            );
+            
+            // Use our new matching function that handles standardized locations
+            return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
+          });
+        }
+      }
+      
+      return listings;
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Get all filter options with counts more efficiently
  */
 export async function getAllFilterOptions(filters: FilterCriteria = {}) {
   try {
-    // When location is selected, we need to pre-filter the dataset
-    let preFilteredListings: ListingRecord[] | null = null;
+    let result: {
+      categories?: { name: string; count: number }[];
+      locations?: { name: string; count: number }[];
+      priceRanges?: { range: string; min: number; max: number; count: number }[];
+      dateRanges?: { range: string; days: number; count: number }[];
+      conditions?: { name: string; count: number }[];
+      sizes?: { name: string; count: number }[];
+      whatsappGroups?: { id: string; name: string; count: number }[];
+    } = {};
     
-    if (filters.location) {
-      // Get all listings matching all filters except those we want counts for
-      const { location, category, minPrice, maxPrice, dateRange, ...otherFilters } = filters;
-      
-      // Build query for pre-filtering
-      let query = supabase.from(TABLES.LISTINGS).select('*');
-      
-      // Apply common filters
-      if (otherFilters.includeISO !== true) {
-        query = query.eq('is_iso', false);
-      }
-      
-      if (otherFilters.condition) {
-        query = query.eq('condition', otherFilters.condition);
-      }
-      
-      // Execute query
-      const { data, error } = await query;
-      
-      if (error) {
-        console.error('Error pre-filtering for filter options:', error);
-      } else if (data) {
-        // Apply location filter in memory since it can't be done efficiently in the database
-        let listings = addGroupNames(data);
-        
-        // Apply location filter if specified
-        if (location) {
-          const locationToMatch = location.trim();
-          
-          // Check if the location is a region
-          if (isRegion(locationToMatch)) {
-            // Get all suburbs for this region
-            const suburbsForRegion = getSuburbsForRegion(locationToMatch);
-            
-            // Filter listings that match any suburb in this region
-            listings = listings.filter(listing => {
-              if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
-                return false;
-              }
-              
-              const normalizedAreas = listing.collection_areas.map(area => 
-                typeof area === 'string' ? area.trim() : String(area)
-              );
-              
-              // Check if any collection area matches any suburb in the region
-              return normalizedAreas.some(area => 
-                suburbsForRegion.some(suburb => locationsMatch(area, suburb))
-              );
-            });
-          } else {
-            // Regular location filtering
-            listings = listings.filter(listing => {
-              if (!listing.collection_areas || !Array.isArray(listing.collection_areas)) {
-                return false;
-              }
-              
-              const normalizedAreas = listing.collection_areas.map(area => 
-                typeof area === 'string' ? area.trim() : String(area)
-              );
-              
-              // Use our new matching function that handles standardized locations
-              return normalizedAreas.some(area => locationsMatch(area, locationToMatch));
-            });
-          }
-        }
-        
-        preFilteredListings = listings;
-      }
-    }
+    // Get prefiltered listings (optimization)
+    // For this, we create a new filter object without the current filter type
+    const preFilteredListings = await getPreFilteredListings(filters);
     
-    // 1. Get categories with counts (passing pre-filtered listings if we have them)
-    const categories = await getCategoriesWithCounts(filters, preFilteredListings);
-    
-    // 2. Get other filter options with counts (passing pre-filtered listings)
-    const locations = await getLocationsWithCounts(filters, preFilteredListings);
-    const priceRanges = await getPriceRangesWithCounts(filters, preFilteredListings);
-    const dateRanges = await getDateRangesWithCounts(filters, preFilteredListings);
-    const conditions = await getConditionsWithCounts(filters, preFilteredListings);
-    const sizes = await getSizesWithCounts(filters, preFilteredListings);
-    
-    return {
+    // Call all filter option getters in parallel
+    const [
       categories,
       locations,
       priceRanges,
       dateRanges,
       conditions,
-      sizes
-    };
+      sizes,
+      whatsappGroups
+    ] = await Promise.all([
+      getCategoriesWithCounts(filters, preFilteredListings),
+      getLocationsWithCounts(filters, preFilteredListings),
+      getPriceRangesWithCounts(filters, preFilteredListings),
+      getDateRangesWithCounts(filters, preFilteredListings),
+      getConditionsWithCounts(filters, preFilteredListings),
+      getSizesWithCounts(filters, preFilteredListings),
+      getWhatsAppGroupsWithCounts(filters, preFilteredListings)
+    ]);
+    
+    result.categories = categories;
+    result.locations = locations;
+    result.priceRanges = priceRanges;
+    result.dateRanges = dateRanges;
+    result.conditions = conditions;
+    result.sizes = sizes;
+    result.whatsappGroups = whatsappGroups;
+    
+    return result;
   } catch (error) {
-    console.error('Error in getAllFilterOptions:', error);
-    return {
-      categories: [],
-      locations: [],
-      priceRanges: [],
-      dateRanges: [],
-      conditions: [],
-      sizes: []
-    };
+    console.error('Error getting all filter options:', error);
+    return {};
   }
 } 

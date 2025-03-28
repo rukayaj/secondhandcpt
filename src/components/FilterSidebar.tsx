@@ -9,10 +9,12 @@ interface FilterSidebarProps {
   locations: { name: string; count: number }[];
   priceRanges: { min: number; max: number; label: string }[];
   dateRanges: { value: string; label: string }[];
+  whatsappGroups?: { id: string; name: string; count: number }[];
   selectedCategory?: string;
   selectedLocation?: string;
   selectedPriceRange?: { min: number; max: number };
   selectedDateRange?: string;
+  selectedWhatsappGroup?: string;
   onFilterChange?: (filterCriteria: FilterCriteria) => void;
   onClearFilter?: (filterType: keyof FilterCriteria) => void;
   onClearAll?: () => void;
@@ -25,10 +27,12 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   locations,
   priceRanges,
   dateRanges,
+  whatsappGroups = [],
   selectedCategory,
   selectedLocation,
   selectedPriceRange,
   selectedDateRange,
+  selectedWhatsappGroup,
   onFilterChange,
   onClearFilter,
   onClearAll,
@@ -120,6 +124,26 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
     }
   };
 
+  const handleWhatsappGroupChange = (groupId: string) => {
+    if (onFilterChange) {
+      // Client-side filtering
+      onFilterChange({
+        ...buildCurrentFilterCriteria(),
+        whatsappGroup: groupId || undefined,
+      });
+    } else {
+      // Server-side filtering (fallback)
+      router.push({
+        pathname: router.pathname,
+        query: {
+          ...router.query,
+          whatsappGroup: groupId || undefined,
+          page: 1,
+        },
+      });
+    }
+  };
+
   const clearFilters = () => {
     if (onClearAll) {
       // Use provided clear all handler
@@ -154,6 +178,10 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
     
     if (selectedDateRange) {
       criteria.dateRange = parseInt(selectedDateRange, 10);
+    }
+
+    if (selectedWhatsappGroup) {
+      criteria.whatsappGroup = selectedWhatsappGroup;
     }
     
     return criteria;
@@ -363,6 +391,73 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
           ))}
         </select>
       </div>
+
+      {/* WhatsApp Groups Filter */}
+      {whatsappGroups.length > 0 && (
+        <div>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-lg font-semibold">WhatsApp Group</h3>
+            {selectedWhatsappGroup && onClearFilter && (
+              <button 
+                onClick={() => onClearFilter('whatsappGroup')}
+                className="text-xs text-primary-600 hover:text-primary-800"
+                aria-label="Clear WhatsApp group filter"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <select
+            className="w-full p-2 border border-secondary-200 rounded-md"
+            value={selectedWhatsappGroup || ''}
+            onChange={(e) => handleWhatsappGroupChange(e.target.value)}
+            disabled={isLoading}
+          >
+            <option value="">All Groups</option>
+            
+            {/* Active groups - with count > 0 */}
+            {whatsappGroups
+              .filter(group => group.count > 0)
+              .sort((a, b) => {
+                // First sort by count (descending)
+                if (b.count !== a.count) {
+                  return b.count - a.count;
+                }
+                // Then sort alphabetically by name
+                return a.name.localeCompare(b.name);
+              })
+              .map((group) => (
+                <option 
+                  key={group.id} 
+                  value={group.id}
+                >
+                  {group.name} ({group.count})
+                </option>
+              ))
+            }
+            
+            {/* Groups with zero counts */}
+            {whatsappGroups.filter(group => group.count === 0).length > 0 && (
+              <optgroup label="───────────────">
+                {whatsappGroups
+                  .filter(group => group.count === 0)
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((group) => (
+                    <option 
+                      key={group.id} 
+                      value={group.id}
+                      disabled
+                      style={{ color: '#999' }}
+                    >
+                      {group.name} (0)
+                    </option>
+                  ))
+                }
+              </optgroup>
+            )}
+          </select>
+        </div>
+      )}
 
       <div className="mt-8">
         <button
