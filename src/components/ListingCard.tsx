@@ -6,6 +6,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { formatDate, getConditionColor } from '@/utils/utils';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
 import { useRouter } from 'next/router';
+import { useFavorites } from '@/contexts/FavoritesContext';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -72,6 +73,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const [imageError, setImageError] = React.useState(false);
   const router = useRouter();
   const { category, page } = router.query;
+  const { isFavorite, addToFavorites, removeFromFavorites } = useFavorites();
+  const isItemFavorite = isFavorite(listing.id);
 
   // Use the title field directly - no fallback to ensure titles are always required
   const displayTitle = listing.title;
@@ -110,6 +113,18 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
     };
   };
 
+  // Handle favorite toggle
+  const handleFavoriteClick = (e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent the link from being followed
+    e.stopPropagation(); // Stop event bubbling
+    
+    if (isItemFavorite) {
+      removeFromFavorites(listing.id);
+    } else {
+      addToFavorites(listing.id);
+    }
+  };
+
   return (
     <Link href={getDetailHref()} className="card h-full flex flex-col hover:shadow-lg transition-shadow">
       <div className="relative pt-[75%]">
@@ -133,7 +148,16 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           />
         )}
         
-        {/* SOLD indicator badge instead of overlay */}
+        {/* Favorite button */}
+        <button
+          onClick={handleFavoriteClick}
+          className="absolute top-2 left-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white bg-opacity-80 hover:bg-opacity-100 shadow-md transition-all"
+          aria-label={isItemFavorite ? "Remove from favorites" : "Add to favorites"}
+        >
+          <i className={`${isItemFavorite ? 'fa-solid' : 'fa-regular'} fa-heart text-red-500`}></i>
+        </button>
+        
+        {/* SOLD indicator badge */}
         {listing.is_sold && (
           <div className="absolute top-2 right-2 bg-red-600 text-white py-1 px-3 font-bold text-sm rounded-md shadow-md">
             SOLD
@@ -141,16 +165,16 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
         )}
         
         {listing.is_iso && (
-          <div className="absolute top-2 left-2 text-xs font-bold px-2 py-1 rounded shadow flex items-center gap-1" style={{ backgroundColor: '#3b82f6', color: 'white' }}>
+          <div className="absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow flex items-center gap-1" style={{ backgroundColor: '#3b82f6', color: 'white' }}>
             <i className="fa-solid fa-search"></i>
             <span>ISO</span>
           </div>
         )}
         
         {/* Only show condition badge if the item is NOT sold */}
-        {listing.condition && !listing.is_sold && (
+        {listing.condition && !listing.is_sold && !listing.is_iso && (
           <div 
-            className="absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded shadow text-white"
+            className="absolute bottom-2 right-2 text-xs font-bold px-2 py-1 rounded shadow text-white"
             style={{ backgroundColor: getConditionColor(listing.condition) }}
           >
             {listing.condition}

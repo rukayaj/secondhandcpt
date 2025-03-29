@@ -8,6 +8,7 @@ import { getListings, getListingById } from '@/utils/listingService';
 import { ListingRecord } from '@/utils/supabase';
 import { getFormattedImageUrl } from '@/utils/imageUtils';
 import { formatDate } from '@/utils/utils';
+import { useFavorites } from '@/contexts/FavoritesContext';
 
 // Helper function to get the appropriate FontAwesome icon for each category
 function getCategoryIcon(categoryName: string): string {
@@ -114,6 +115,8 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
   const [additionalImageErrors, setAdditionalImageErrors] = React.useState<Record<number, boolean>>({});
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
   const router = useRouter();
+  const { isFavorite, addToFavorites, removeFromFavorites } = useFavorites();
+  const isItemFavorite = isFavorite(listing.id);
   
   // Get filter parameters from URL if they exist
   const fromCategory = router.query.fromCategory as string | undefined;
@@ -178,6 +181,14 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
     return item.title;
   };
 
+  const handleFavoriteToggle = () => {
+    if (isItemFavorite) {
+      removeFromFavorites(listing.id);
+    } else {
+      addToFavorites(listing.id);
+    }
+  };
+
   return (
     <Layout title={`${listing.title} - Nifty Thrifty`}>
       <div className="container py-8">
@@ -240,12 +251,22 @@ export default function ListingDetail({ listing, relatedListings }: ListingDetai
             
             {/* Listing Details */}
             <div>
-              <h1 className="text-2xl font-bold mb-4">
-                {displayTitle}
-                {listing.is_sold && (
-                  <span className="ml-2 text-red-600 font-bold">(SOLD)</span>
-                )}
-              </h1>
+              <div className="flex items-start justify-between mb-4">
+                <h1 className="text-2xl font-bold">
+                  {displayTitle}
+                  {listing.is_sold && (
+                    <span className="ml-2 text-red-600 font-bold">(SOLD)</span>
+                  )}
+                </h1>
+                
+                <button
+                  onClick={handleFavoriteToggle}
+                  className="flex-shrink-0 ml-2 w-10 h-10 flex items-center justify-center rounded-full bg-white bg-opacity-80 hover:bg-opacity-100 shadow-md transition-all border border-secondary-200"
+                  aria-label={isItemFavorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <i className={`${isItemFavorite ? 'fa-solid' : 'fa-regular'} fa-heart text-red-500 text-xl`}></i>
+                </button>
+              </div>
               
               {listing.is_iso && (
                 <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-white bg-blue-500 text-sm font-semibold mb-4">
