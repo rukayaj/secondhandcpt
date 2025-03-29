@@ -2,6 +2,7 @@ import '@/styles/globals.css';
 import type { AppProps } from 'next/app';
 import PasswordProtection from '@/components/PasswordProtection';
 import { useRouter } from 'next/router';
+import { FavoritesProvider } from '@/contexts/FavoritesContext';
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
@@ -14,13 +15,19 @@ export default function App({ Component, pageProps }: AppProps) {
   
   // If it's a public route, don't wrap with password protection
   if (isPublicRoute) {
-    return <Component {...pageProps} />;
+    return (
+      <FavoritesProvider>
+        <Component {...pageProps} />
+      </FavoritesProvider>
+    );
   }
   
   // Otherwise, wrap with password protection
   return (
     <PasswordProtection>
-      <Component {...pageProps} />
+      <FavoritesProvider>
+        <Component {...pageProps} />
+      </FavoritesProvider>
     </PasswordProtection>
   );
 } 

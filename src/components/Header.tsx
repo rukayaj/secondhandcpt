@@ -63,6 +63,10 @@ const Header: React.FC = () => {
               <i className="fas fa-shopping-bag mr-1"></i>
               All Items
             </Link>
+            <Link href="/favorites" className="text-secondary-600 hover:text-primary-600 transition-colors flex items-center">
+              <i className="fas fa-heart mr-1"></i>
+              Favorites
+            </Link>
             <Link href="/iso" className="text-secondary-600 hover:text-primary-600 transition-colors flex items-center">
               <i className="fas fa-search mr-1"></i>
               ISO Posts
